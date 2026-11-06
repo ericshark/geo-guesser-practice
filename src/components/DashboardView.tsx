@@ -19,6 +19,7 @@ interface DashboardViewProps {
   onOpenLanguagesSection: (initialGroup?: LanguageGroupSelectionId) => void;
   onOpenDrivingSideSection: (initialFocus?: DrivingSideFocusId) => void;
   onOpenCoverageSection: (initialFocus?: CoverageFocusId) => void;
+  onOpenDomainsCurrenciesSection: (skillId?: string) => void;
   onOpenDataModal: () => void;
 }
 
@@ -27,7 +28,6 @@ const SECTION_CARDS: Array<{
   title: string;
   subtitle: string;
   clueExamples: string[];
-  availableInV1Slice: boolean;
 }> = [
   {
     id: 'languages',
@@ -35,7 +35,6 @@ const SECTION_CARDS: Array<{
     subtitle:
       'Recognize Sentences, Sign Text, and explicit Tells across 10 visually confusable Language Groups.',
     clueExamples: ['ß → German', 'ő / ű → Hungarian', 'ř / ů → Czech', 'ㅇ / ㅎ → Korean'],
-    availableInV1Slice: true,
   },
   {
     id: 'driving-side',
@@ -43,7 +42,6 @@ const SECTION_CARDS: Array<{
     subtitle:
       'Build instant spatial recall of left- vs right-driving Playable Countries and road-edge geometry clues.',
     clueExamples: ['Kenya (Left)', 'Rwanda (Right)', 'Thailand (Left)', 'Laos (Right)'],
-    availableInV1Slice: true,
   },
   {
     id: 'coverage',
@@ -51,7 +49,6 @@ const SECTION_CARDS: Array<{
     subtitle:
       'Internalize Official, Limited, and None Street View Coverage Tiers and rule out trap countries.',
     clueExamples: ['China (None)', 'Tunisia (Limited)', 'Senegal (Limited)', 'Belarus (None)'],
-    availableInV1Slice: true,
   },
   {
     id: 'domains-currencies',
@@ -59,7 +56,6 @@ const SECTION_CARDS: Array<{
     subtitle:
       'Map country-code domains (.hr, .ch, .za, .rs) and currency signs (zł, Kč, Ft, ฿, ₪) to Candidate Countries.',
     clueExamples: ['.hr → Croatia', 'zł → Poland', 'Kč → Czechia', '.za → South Africa'],
-    availableInV1Slice: false,
   },
 ];
 
@@ -69,6 +65,7 @@ export function DashboardView({
   onOpenLanguagesSection,
   onOpenDrivingSideSection,
   onOpenCoverageSection,
+  onOpenDomainsCurrenciesSection,
   onOpenDataModal,
 }: DashboardViewProps) {
   const allBreakdowns = Object.values(sectionBreakdowns);
@@ -283,6 +280,8 @@ export function DashboardView({
                           onOpenCoverageSection('world');
                         } else if (skill.section === 'driving-side') {
                           onOpenDrivingSideSection('world');
+                        } else if (skill.section === 'domains-currencies') {
+                          onOpenDomainsCurrenciesSection(skill.skillId);
                         } else {
                           onOpenLanguagesSection(
                             skill.groupId ?? 'smart-weakest'
@@ -479,27 +478,18 @@ export function DashboardView({
                   <span className="text-[0.8125rem] text-[var(--text-secondary)]">
                     {b.practicedTrials} trials completed
                   </span>
-                  {card.availableInV1Slice ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (card.id === 'coverage') {
-                          onOpenCoverageSection();
-                        } else if (card.id === 'driving-side') {
-                          onOpenDrivingSideSection();
-                        } else {
-                          onOpenLanguagesSection();
-                        }
-                      }}
-                      className="rounded-lg bg-[var(--brand-accent)] px-4 py-1.5 text-[0.875rem] font-semibold text-white hover:opacity-95"
-                    >
-                      Open {card.title} →
-                    </button>
-                  ) : (
-                    <span className="rounded-lg border border-[var(--border-subtle)] px-3 py-1 text-[0.75rem] font-medium text-[var(--text-secondary)]">
-                      Dataset Indexed ({b.total} items)
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={{
+                      coverage: () => onOpenCoverageSection(),
+                      'driving-side': () => onOpenDrivingSideSection(),
+                      languages: () => onOpenLanguagesSection(),
+                      'domains-currencies': () => onOpenDomainsCurrenciesSection(),
+                    }[card.id]}
+                    className="rounded-lg bg-[var(--brand-accent)] px-4 py-1.5 text-[0.875rem] font-semibold text-white hover:opacity-95"
+                  >
+                    Open {card.title} →
+                  </button>
                 </div>
               </div>
             );

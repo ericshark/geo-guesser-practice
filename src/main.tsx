@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { CoverageSectionView } from './components/CoverageSectionView.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { DataManagementModal } from './components/DataManagementModal.tsx';
+import { DomainsCurrenciesSectionView } from './components/DomainsCurrenciesSectionView.tsx';
+import { FieldGuideView } from './components/FieldGuideView.tsx';
 import { DrivingSideSectionView } from './components/DrivingSideSectionView.tsx';
 import { LanguagesSectionView } from './components/LanguagesSectionView.tsx';
 import type {
@@ -20,7 +22,16 @@ import {
 } from './storage/index.ts';
 import './style.css';
 
-type ActiveRoute = 'dashboard' | 'languages' | 'driving-side' | 'coverage';
+const ROUTE_LABELS = {
+  dashboard: 'Dashboard',
+  languages: 'Languages',
+  'driving-side': 'Driving Side',
+  coverage: 'Coverage',
+  'domains-currencies': 'Domains & Currencies',
+  'field-guide': 'Field Guide',
+};
+
+type ActiveRoute = keyof typeof ROUTE_LABELS;
 
 export function App({ customStore }: { customStore?: ProgressStore }) {
   const store = useMemo(
@@ -39,6 +50,7 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
     useState<DrivingSideFocusId | null>(null);
   const [initialCoverageFocus, setInitialCoverageFocus] =
     useState<CoverageFocusId | null>(null);
+  const [initialSignSkill, setInitialSignSkill] = useState<string>();
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
 
   useEffect(() => {
@@ -50,14 +62,8 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
   }, [store]);
 
   useEffect(() => {
-    document.title =
-      route === 'languages'
-        ? 'Languages Practice | GeoGuessr Practice'
-        : route === 'driving-side'
-          ? 'Driving Side Practice | GeoGuessr Practice'
-          : route === 'coverage'
-            ? 'Coverage Practice | GeoGuessr Practice'
-            : 'Dashboard | GeoGuessr Practice';
+    document.title = `${ROUTE_LABELS[route]} | GeoGuessr Practice`;
+    window.scrollTo(0, 0);
   }, [route]);
 
   const sectionBreakdowns: Record<SectionId, SectionMasteryBreakdown> = useMemo(
@@ -86,6 +92,20 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
     setRoute('coverage');
   };
 
+  const handleOpenDomainsCurrencies = (skillId?: string) => {
+    setInitialSignSkill(skillId);
+    setRoute('domains-currencies');
+  };
+
+  const navigation: [ActiveRoute, () => void][] = [
+    ['dashboard', () => setRoute('dashboard')],
+    ['languages', () => handleOpenLanguages()],
+    ['driving-side', () => handleOpenDrivingSide()],
+    ['coverage', () => handleOpenCoverage()],
+    ['domains-currencies', () => handleOpenDomainsCurrencies()],
+    ['field-guide', () => setRoute('field-guide')],
+  ];
+
   return (
     <div className="min-h-screen flex flex-col">
       <a href="#main-content" className="skip-link visually-hidden">
@@ -93,94 +113,40 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
       </a>
 
       <header className="sticky top-0 z-30 border-b border-[var(--border-subtle)] bg-[var(--surface-card)]/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-6">
-            <button
-              type="button"
-              onClick={() => {
-                setInitialLanguageGroup(null);
-                setInitialDrivingFocus(null);
-                setInitialCoverageFocus(null);
-                setRoute('dashboard');
-              }}
-              className="flex items-center gap-2.5 text-left font-semibold tracking-tight"
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
+          <button
+            type="button"
+            onClick={() => setRoute('dashboard')}
+            className="flex items-center gap-2.5 text-left font-semibold tracking-tight"
+          >
+            <span
+              aria-hidden="true"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--brand-accent)] text-[0.875rem] font-bold text-white"
             >
-              <span
-                aria-hidden="true"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--brand-accent)] text-[0.875rem] font-bold text-white"
-              >
-                G
-              </span>
-              <span className="text-[1rem]">GeoGuessr Practice</span>
-            </button>
-
-            <nav aria-label="Primary">
-              <ul className="flex items-center gap-1" role="list">
-                <li>
+              G
+            </span>
+            GeoGuessr Practice
+          </button>
+          <nav aria-label="Primary" className="order-last w-full lg:order-none lg:w-auto">
+            <ul className="flex flex-wrap items-center gap-1" role="list">
+              {navigation.map(([id, open]) => (
+                <li key={id}>
                   <button
                     type="button"
-                    aria-current={route === 'dashboard' ? 'page' : undefined}
-                    onClick={() => {
-                      setInitialLanguageGroup(null);
-                      setInitialDrivingFocus(null);
-                      setInitialCoverageFocus(null);
-                      setRoute('dashboard');
-                    }}
-                    className={`rounded-lg px-3 py-1.5 text-[0.875rem] font-medium transition ${
-                      route === 'dashboard'
+                    aria-current={route === id ? 'page' : undefined}
+                    onClick={open}
+                    className={`rounded-lg px-2.5 py-1.5 text-sm font-medium transition ${
+                      route === id
                         ? 'bg-zinc-500/12 font-semibold'
                         : 'text-[var(--text-secondary)] hover:bg-zinc-500/10'
                     }`}
                   >
-                    Dashboard
+                    {ROUTE_LABELS[id]}
                   </button>
                 </li>
-                <li>
-                  <button
-                    type="button"
-                    aria-current={route === 'languages' ? 'page' : undefined}
-                    onClick={() => handleOpenLanguages()}
-                    className={`rounded-lg px-3 py-1.5 text-[0.875rem] font-medium transition ${
-                      route === 'languages'
-                        ? 'bg-zinc-500/12 font-semibold'
-                        : 'text-[var(--text-secondary)] hover:bg-zinc-500/10'
-                    }`}
-                  >
-                    Languages
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    aria-current={route === 'driving-side' ? 'page' : undefined}
-                    onClick={() => handleOpenDrivingSide()}
-                    className={`rounded-lg px-3 py-1.5 text-[0.875rem] font-medium transition ${
-                      route === 'driving-side'
-                        ? 'bg-zinc-500/12 font-semibold'
-                        : 'text-[var(--text-secondary)] hover:bg-zinc-500/10'
-                    }`}
-                  >
-                    Driving Side
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    aria-current={route === 'coverage' ? 'page' : undefined}
-                    onClick={() => handleOpenCoverage()}
-                    className={`rounded-lg px-3 py-1.5 text-[0.875rem] font-medium transition ${
-                      route === 'coverage'
-                        ? 'bg-zinc-500/12 font-semibold'
-                        : 'text-[var(--text-secondary)] hover:bg-zinc-500/10'
-                    }`}
-                  >
-                    Coverage
-                  </button>
-                </li>
-              </ul>
-            </nav>
-          </div>
-
+              ))}
+            </ul>
+          </nav>
           <div className="flex items-center gap-3">
             <span className="hidden text-[0.75rem] text-[var(--text-secondary)] sm:inline">
               {progress.totalTrials} trials · {progress.streakDays}d streak
@@ -190,7 +156,7 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
               onClick={() => setIsDataModalOpen(true)}
               className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
             >
-              Data & Backup
+              Data &amp; Backup
             </button>
           </div>
         </div>
@@ -207,6 +173,7 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
             onOpenLanguagesSection={handleOpenLanguages}
             onOpenDrivingSideSection={handleOpenDrivingSide}
             onOpenCoverageSection={handleOpenCoverage}
+            onOpenDomainsCurrenciesSection={handleOpenDomainsCurrencies}
             onOpenDataModal={() => setIsDataModalOpen(true)}
           />
         ) : route === 'driving-side' ? (
@@ -229,6 +196,14 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
               setRoute('dashboard');
             }}
           />
+        ) : route === 'domains-currencies' ? (
+          <DomainsCurrenciesSectionView
+            engine={engine}
+            initialSkillId={initialSignSkill}
+            onBackToDashboard={() => setRoute('dashboard')}
+          />
+        ) : route === 'field-guide' ? (
+          <FieldGuideView progress={progress} />
         ) : (
           <LanguagesSectionView
             engine={engine}

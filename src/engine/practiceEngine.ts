@@ -1,4 +1,8 @@
 import {
+  DOMAINS_CURRENCIES_SKILL_MAP,
+  DOMAINS_CURRENCIES_SKILLS,
+} from '../data/domainsCurrencies.ts';
+import {
   computeDrivingSideNarrowingCandidates,
   COVERAGE_FOCUS_MAP,
   DRIVING_SIDE_FOCUS_MAP,
@@ -155,6 +159,13 @@ export function resolveSkillDisplayInfo(skillId: string): {
   groupId?: LanguageGroupId;
   groupName?: string;
 } {
+  const signSkill = DOMAINS_CURRENCIES_SKILL_MAP.get(skillId);
+  if (signSkill) {
+    return {
+      label: signSkill.label,
+      sublabel: signSkill.kind === 'domain' ? signSkill.countries[0].name : 'Currency',
+    };
+  }
   if (skillId.startsWith('lang:')) {
     const langId = skillId.replace(/^lang:/, '');
     const lang = LANGUAGE_MAP[langId];
@@ -167,7 +178,7 @@ export function resolveSkillDisplayInfo(skillId: string): {
         groupName: group?.name,
       };
     }
-  } else if (skillId.startsWith('drive:') || skillId.startsWith('cov:') || skillId.startsWith('domain:')) {
+  } else if (skillId.startsWith('drive:') || skillId.startsWith('cov:')) {
     const countryId = skillId.split(':')[1] ?? '';
     const country = PLAYABLE_COUNTRY_MAP[countryId];
     if (country) {
@@ -384,6 +395,40 @@ export interface ContrastCardPrime {
   languages: ContrastCardLanguageEntry[];
 }
 
+export function getLanguageGroupContrastCard(
+  groupId: LanguageGroupId,
+  state: ProgressData,
+  sampleKind?: LanguageSample['kind']
+): ContrastCardPrime {
+  const groupSpec = LANGUAGE_GROUP_MAP[groupId];
+  const languages = getLanguagesForGroupSelection(groupId);
+  return {
+    groupId,
+    groupName: groupSpec.name,
+    description: groupSpec.description,
+    primeSummary: groupSpec.primeSummary,
+    alreadyViewed: state.completedPrimes.includes(groupId),
+    languages: languages.map((lang) => {
+      const skillId = `lang:${lang.id}`;
+      const mastery = state.skills[skillId]?.mastery ?? 'unseen';
+      return {
+        id: lang.id,
+        skillId,
+        name: lang.name,
+        nativeName: lang.nativeName,
+        script: lang.script,
+        tells: lang.tells,
+        gestaltNote: lang.gestaltNote,
+        contrastNote: lang.contrastNote,
+        candidateCountries: getCandidateCountriesForLanguage(lang),
+        uncoveredCountryNotes: lang.uncoveredCountryNotes,
+        exampleSample: lang.samples.find(({ kind }) => kind === sampleKind) ?? lang.samples[0],
+        mastery,
+      };
+    }),
+  };
+}
+
 export interface TrialOption {
   id: string; // e.g., 'lang:cs'
   languageId: string; // e.g., 'cs'
@@ -402,7 +447,9 @@ export type LanguageTrialKind =
   | 'coverage-map'
   | 'driving-speed'
   | 'driving-map'
-  | 'driving-narrowing';
+  | 'driving-narrowing'
+  | 'domain'
+  | 'currency';
 
 export interface CountryBridgePrompt {
   languageId: string;
@@ -511,10 +558,29 @@ export interface PracticeTrial {
   country?: PlayableCountry;
   coveragePrompt?: CoverageTrialPrompt;
   drivingPrompt?: DrivingSideTrialPrompt;
+  domainsCurrenciesPrompt?: DomainsCurrenciesPrompt;
   assisted?: boolean;
   isFollowUp?: boolean;
   options: TrialOption[];
   startedAtMs: number;
+}
+
+export type DomainsCurrenciesDrillMode = 'mixed' | 'domains' | 'currencies';
+
+export interface DomainsCurrenciesPrompt {
+  marker: string;
+  countries: PlayableCountry[];
+}
+
+export interface DomainsCurrenciesFeedback {
+  saveFailed?: true;
+  correct: boolean;
+  assisted: boolean;
+  responseTimeMs: number;
+  isFluentSpeed: boolean;
+  newMastery: MasteryState;
+  selectedCountryIds: string[];
+  expectedCountryIds: string[];
 }
 
 export interface ChosenLanguageContrast {
@@ -814,6 +880,9 @@ export class PracticeEngine {
   private coverageDrillMode: CoverageDrillMode = 'mixed';
   private activeDrivingFocus: DrivingSideFocusId = 'world';
   private drivingDrillMode: DrivingSideDrillMode = 'mixed';
+  private domainsCurrenciesMode: DomainsCurrenciesDrillMode = 'mixed';
+  private shownSignCluesBySkill = new Map<string, Set<string>>();
+  private domainsCurrenciesFeedback: DomainsCurrenciesFeedback | null = null;
   private stage0Prime: ContrastCardPrime | null = null;
   private currentTrial: PracticeTrial | null = null;
   private currentTrialAssisted = false;
@@ -886,34 +955,7 @@ export class PracticeEngine {
       config.groupId !== 'smart-weakest' &&
       !config.skipPrime
     ) {
-      const groupSpec = LANGUAGE_GROUP_MAP[config.groupId];
-      const state = this.store.getState();
-      const languages = getLanguagesForGroupSelection(config.groupId);
-      this.stage0Prime = {
-        groupId: config.groupId,
-        groupName: groupSpec.name,
-        description: groupSpec.description,
-        primeSummary: groupSpec.primeSummary,
-        alreadyViewed: state.completedPrimes.includes(config.groupId),
-        languages: languages.map((lang) => {
-          const skillId = `lang:${lang.id}`;
-          const mastery = state.skills[skillId]?.mastery ?? 'unseen';
-          return {
-            id: lang.id,
-            skillId,
-            name: lang.name,
-            nativeName: lang.nativeName,
-            script: lang.script,
-            tells: lang.tells,
-            gestaltNote: lang.gestaltNote,
-            contrastNote: lang.contrastNote,
-            candidateCountries: getCandidateCountriesForLanguage(lang),
-            uncoveredCountryNotes: lang.uncoveredCountryNotes,
-            exampleSample: lang.samples[0],
-            mastery,
-          };
-        }),
-      };
+      this.stage0Prime = getLanguageGroupContrastCard(config.groupId, this.store.getState());
     } else {
       this.stage0Prime = null;
       this.nextTrial();
@@ -933,27 +975,7 @@ export class PracticeEngine {
     this.activeSection = 'coverage';
     this.activeCoverageFocus = config.focusId;
     this.coverageDrillMode = config.drillMode ?? 'mixed';
-    this.stage0Prime = null;
-    this.sessionTrialCounter = 0;
-    this.sessionLastPresentedAt.clear();
-    this.followUpQueue = [];
-    this.pendingContrastQueue = [];
-    this.pendingBridgeQueue = [];
-    this.sessionBridgedLangs.clear();
-    this.pairConfusionsSinceTrigger.clear();
-    this.sessionPairBoostBySkill.clear();
-    this.currentTrial = null;
-    this.currentTrialAssisted = false;
-    this.activeGuidedBreakdown = null;
-    this.lastFeedback = null;
-    this.lastCoverageFeedback = null;
-    this.lastDrivingFeedback = null;
-    this.sessionStats = {
-      trialsCompleted: 0,
-      correctCount: 0,
-      fluentCount: 0,
-      averageResponseTimeMs: 0,
-    };
+    this.resetGeographySession();
     return this.nextTrial();
   }
 
@@ -961,6 +983,22 @@ export class PracticeEngine {
     this.activeSection = 'driving-side';
     this.activeDrivingFocus = config.focusId;
     this.drivingDrillMode = config.drillMode ?? 'mixed';
+    this.resetGeographySession();
+    return this.nextTrial();
+  }
+
+  startDomainsCurrenciesSession(
+    mode: DomainsCurrenciesDrillMode = 'mixed',
+    initialSkillId?: string
+  ): PracticeTrial {
+    this.activeSection = 'domains-currencies';
+    this.domainsCurrenciesMode = mode;
+    this.resetGeographySession();
+    this.sessionTrialCounter += 1;
+    return this.nextDomainsCurrenciesTrial(initialSkillId);
+  }
+
+  private resetGeographySession(): void {
     this.stage0Prime = null;
     this.sessionTrialCounter = 0;
     this.sessionLastPresentedAt.clear();
@@ -982,7 +1020,7 @@ export class PracticeEngine {
       fluentCount: 0,
       averageResponseTimeMs: 0,
     };
-    return this.nextTrial();
+    this.domainsCurrenciesFeedback = null;
   }
 
   getActiveSection(): SectionId {
@@ -1086,6 +1124,7 @@ export class PracticeEngine {
       return this.activeGuidedBreakdown;
     }
 
+    const alreadyAssisted = this.currentTrialAssisted;
     this.currentTrialAssisted = true;
     trial.assisted = true;
 
@@ -1105,6 +1144,10 @@ export class PracticeEngine {
       trial.kind === 'driving-narrowing'
     ) {
       return this.buildDrivingGuidedBreakdown(trial);
+    }
+
+    if (trial.domainsCurrenciesPrompt) {
+      return this.buildDomainsCurrenciesBreakdown(trial, trial.domainsCurrenciesPrompt, alreadyAssisted);
     }
 
     const targetLanguage = LANGUAGE_MAP[trial.languageId];
@@ -1213,6 +1256,10 @@ export class PracticeEngine {
 
     if (this.activeSection === 'driving-side') {
       return this.nextDrivingSideTrial();
+    }
+
+    if (this.activeSection === 'domains-currencies') {
+      return this.nextDomainsCurrenciesTrial();
     }
 
     // 1. Check if a Stage 2 Triggered Contrast Card is pending
@@ -1329,6 +1376,10 @@ export class PracticeEngine {
     const trial = this.currentTrial;
     if (!trial) {
       throw new Error('No active trial to submit an answer for.');
+    }
+
+    if (trial.domainsCurrenciesPrompt) {
+      throw new Error('Use submitDomainsCurrenciesAnswer for this trial.');
     }
 
     if (trial.kind === 'country-bridge') {
@@ -2702,13 +2753,213 @@ export class PracticeEngine {
     };
   }
 
+  private nextDomainsCurrenciesTrial(initialSkillId?: string): PracticeTrial {
+    const pool = DOMAINS_CURRENCIES_SKILLS.filter((skill) =>
+      this.domainsCurrenciesMode === 'mixed' ||
+      (this.domainsCurrenciesMode === 'domains' ? skill.kind === 'domain' : skill.kind === 'currency')
+    );
+    const followUpIndex = this.followUpQueue.findIndex(({ skillId }) =>
+      this.sessionTrialCounter - (this.sessionLastPresentedAt.get(skillId) ?? 0) > ARTS_SPACING_DELAY
+    );
+    const followUp = followUpIndex < 0 ? undefined : this.followUpQueue.splice(followUpIndex, 1)[0];
+    const state = this.store.getState();
+    // Reserve every other turn for new skills while the large Section pool still has unseen items.
+    const introductions = this.sessionTrialCounter % 2 === 0
+      ? pool.filter(({ id }) => !state.skills[id]?.attempts.length && !this.sessionLastPresentedAt.has(id))
+      : [];
+    const skill = pool.find(({ id }) => id === (followUp?.skillId ?? initialSkillId))
+      ?? this.selectByGeographyArts(introductions.length ? introductions : pool, ({ id }) => id);
+
+    const shown = this.shownSignCluesBySkill.get(skill.id) ?? new Set<string>();
+    const recentIds = [...(state.skills[skill.id]?.recentSampleIds ?? []), ...shown];
+    const clueId = (text: string) => `${skill.id}:${text}`;
+    const clue = skill.clues.reduce((oldest, candidate) =>
+      recentIds.lastIndexOf(clueId(candidate.text)) < recentIds.lastIndexOf(clueId(oldest.text))
+        ? candidate : oldest
+    );
+    // Set insertion order keeps the most recently shown clue at the end.
+    shown.delete(clueId(clue.text));
+    shown.add(clueId(clue.text));
+    this.shownSignCluesBySkill.set(skill.id, shown);
+
+    // Keep large currency sets keyboard-friendly. Every listed match is required.
+    const expected = this.shuffleCountries(skill.countries).slice(0, 4);
+    const distractors = this.shuffleCountries(PLAYABLE_COUNTRIES.filter((country) =>
+      !skill.countries.includes(country) &&
+      (skill.kind === 'domain' || country.coverageTier !== 'none') &&
+      // A compound dollar mark on a sign may also be shortened to a bare dollar sign.
+      (clue.marker !== '$' || !country.currencies.some(({ symbol }) => symbol.endsWith('$')))
+    ));
+    if (skill.kind === 'domain') {
+      const region = skill.countries[0].region;
+      distractors.sort((a, b) => Number(b.region === region) - Number(a.region === region));
+    }
+    const choices = this.shuffleCountries([...expected, ...distractors.slice(0, 6 - expected.length)]);
+
+    this.sessionLastPresentedAt.set(skill.id, this.sessionTrialCounter);
+    this.domainsCurrenciesFeedback = null;
+    this.currentTrial = {
+      trialNumber: this.sessionTrialCounter,
+      section: 'domains-currencies',
+      kind: skill.kind,
+      skillId: skill.id,
+      languageId: '',
+      groupName: 'Domains & Currencies',
+      fluencyThresholdMs: LANGUAGE_FLUENCY_THRESHOLD_MS,
+      sample: { id: clueId(clue.text), text: clue.text, kind: 'sign', translation: '', tellIds: [] },
+      domainsCurrenciesPrompt: { marker: clue.marker, countries: skill.countries },
+      isFollowUp: Boolean(followUp),
+      options: choices.map((country, index) => ({
+        id: country.id,
+        languageId: '',
+        label: country.name,
+        sublabel: '',
+        shortcutKey: index + 1,
+      })),
+      startedAtMs: this.now(),
+    };
+    return this.currentTrial;
+  }
+
+  private shuffleCountries(countries: PlayableCountry[]): PlayableCountry[] {
+    const shuffled = [...countries];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }
+
+  async submitDomainsCurrenciesAnswer(
+    countryIds: string[],
+    explicitResponseTimeMs?: number
+  ): Promise<DomainsCurrenciesFeedback> {
+    const trial = this.currentTrial;
+    const prompt = trial?.domainsCurrenciesPrompt;
+    if (!trial || !prompt) throw new Error('No active Domains & Currencies trial.');
+    if (this.domainsCurrenciesFeedback) return this.domainsCurrenciesFeedback;
+
+    const selectedCountryIds = [...new Set(countryIds)];
+    const expectedCountryIds = trial.options.map(({ id }) => id).filter((id) =>
+      prompt.countries.some((country) => country.id === id)
+    );
+    const correct = selectedCountryIds.length === expectedCountryIds.length &&
+      expectedCountryIds.every((id) => selectedCountryIds.includes(id));
+    const timestamp = this.now();
+    const responseTimeMs = Math.max(0, Math.round(explicitResponseTimeMs ?? timestamp - trial.startedAtMs));
+    const assisted = this.currentTrialAssisted;
+    const isFluentSpeed = correct && !assisted && responseTimeMs < trial.fluencyThresholdMs;
+    const attempts = this.store.getState().skills[trial.skillId]?.attempts ?? [];
+    const newMastery = calculateMasteryState(
+      [...attempts, { timestamp, correct, assisted, responseTimeMs }],
+      trial.fluencyThresholdMs - 1
+    );
+
+    const stats = this.sessionStats;
+    stats.averageResponseTimeMs = Math.round(
+      (stats.averageResponseTimeMs * stats.trialsCompleted + responseTimeMs) / (stats.trialsCompleted + 1)
+    );
+    stats.trialsCompleted += 1;
+    stats.correctCount += Number(correct);
+    stats.fluentCount += Number(isFluentSpeed);
+
+    const feedback: DomainsCurrenciesFeedback = {
+      correct, assisted, responseTimeMs, isFluentSpeed, newMastery, selectedCountryIds, expectedCountryIds,
+    };
+    this.domainsCurrenciesFeedback = feedback;
+    const wrongId = selectedCountryIds.find((id) => !expectedCountryIds.includes(id) &&
+      trial.options.some((option) => option.id === id));
+    const wrongCountry = wrongId ? PLAYABLE_COUNTRY_MAP[wrongId] : undefined;
+    const wrongCurrency = wrongCountry?.currencies[0];
+    const chosenSkillId = trial.kind === 'domain' && wrongCountry
+      ? `domain:${wrongCountry.id}`
+      : wrongCurrency && `curr:${wrongCurrency.code.toLowerCase()}`;
+
+    try {
+      await this.store.recordAttempt({
+        section: 'domains-currencies',
+        skillId: trial.skillId,
+        chosenSkillId,
+        sampleId: trial.sample.id,
+        correct,
+        assisted,
+        responseTimeMs,
+        mastery: newMastery,
+        trialIndex: trial.trialNumber,
+        now: new Date(timestamp),
+      });
+    } catch {
+      feedback.saveFailed = true;
+    }
+    return feedback;
+  }
+
+  private buildDomainsCurrenciesBreakdown(
+    trial: PracticeTrial,
+    prompt: DomainsCurrenciesPrompt,
+    alreadyAssisted: boolean
+  ): GuidedBreakdown {
+    const isDomain = trial.kind === 'domain';
+    const expected = new Set(prompt.countries.map(({ id }) => id));
+    const explanation = isDomain
+      ? `Read the country-code suffix at the end of the address. ${prompt.marker} belongs to ${prompt.countries[0].name}.`
+      : `Read the currency mark next to the amount. Every listed country whose currency uses ${prompt.marker} is a match.`;
+
+    const toQueue = alreadyAssisted ? 0 : Math.min(
+      GUIDED_BREAKDOWN_FOLLOW_UP_COUNT,
+      3 - this.getQueuedFollowUpCount(trial.skillId)
+    );
+    for (let i = 0; i < toQueue; i++) {
+      this.followUpQueue.push({
+        skillId: trial.skillId,
+        languageId: '',
+        queuedAtTrial: this.sessionTrialCounter,
+      });
+    }
+    this.activeGuidedBreakdown = {
+      skillId: trial.skillId,
+      languageId: '',
+      languageName: '',
+      nativeName: '',
+      script: '',
+      sample: trial.sample,
+      translation: '',
+      matchedTells: [],
+      gestaltNote: explanation,
+      contrastNote: '',
+      candidateCountries: prompt.countries,
+      uncoveredCountryNotes: [],
+      distractorEliminations: trial.options.filter(({ id }) => !expected.has(id)).map((option) => {
+        const country = PLAYABLE_COUNTRY_MAP[option.id];
+        const clue = isDomain ? country.tld : country.currencies.map(({ code, symbol }) =>
+          code === symbol ? code : `${code} (${symbol})`
+        ).join(', ');
+        return {
+          optionId: option.id,
+          languageId: '',
+          languageName: country.name,
+          nativeName: '',
+          reason: `${country.name} uses ${clue}.`,
+          expectedTellsMissing: [],
+        };
+      }),
+      assisted: true,
+      queuedFollowUps: this.getQueuedFollowUpCount(trial.skillId),
+    };
+    return this.activeGuidedBreakdown;
+  }
+
   private selectNextCoverageCountryByArts(
     pool: PlayableCountry[]
   ): PlayableCountry {
+    return this.selectByGeographyArts(pool, (country) => `cov:${country.id}`);
+  }
+
+  private selectByGeographyArts<T>(pool: T[], getSkillId: (item: T) => string): T {
     const state = this.store.getState();
 
-    const scored = pool.map((country, index) => {
-      const skillId = `cov:${country.id}`;
+    const scored = pool.map((item, index) => {
+      const skillId = getSkillId(item);
       const lastSessionTrial = this.sessionLastPresentedAt.get(skillId);
       const trialsSinceLastSeen =
         lastSessionTrial !== undefined
@@ -2731,7 +2982,7 @@ export class PracticeEngine {
         // Blocked by spacing delay D = 2
         priority = trialsSinceLastSeen - ARTS_SPACING_DELAY - 10;
       } else if (!record || record.attempts.length === 0) {
-        // Unseen skill: introduce in focus order (which prioritizes trap, limited, and contrast countries)
+        // Unseen skill: introduce in pool order
         priority = 2.0 - index * 0.01 + confusionBoost;
       } else {
         const lastAttempt = record.attempts[record.attempts.length - 1];
@@ -2746,7 +2997,7 @@ export class PracticeEngine {
         });
       }
 
-      return { country, priority, trialsSinceLastSeen };
+      return { item, priority, trialsSinceLastSeen };
     });
 
     scored.sort((a, b) => {
@@ -2756,7 +3007,7 @@ export class PracticeEngine {
       return b.trialsSinceLastSeen - a.trialsSinceLastSeen;
     });
 
-    return scored[0].country;
+    return scored[0].item;
   }
 
   private collectRegionalLimitedNotes(

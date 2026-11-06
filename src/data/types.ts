@@ -62,6 +62,7 @@ export interface CurrencySpec {
   code: string;
   name: string;
   exampleSign: string;
+  alternateSigns?: { symbol: string; exampleSign: string }[];
 }
 
 export interface PlayableCountry {

@@ -215,8 +215,12 @@ export class ProgressStore {
     }
 
     this.state = next;
-    await this.adapter.save(this.state);
-    this.emit();
+    try {
+      await this.adapter.save(this.state);
+    } finally {
+      // The attempt remains available to the current session if persistence fails.
+      this.emit();
+    }
     return this.state;
   }
 

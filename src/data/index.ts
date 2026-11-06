@@ -1,3 +1,4 @@
+import { DOMAINS_CURRENCIES_SKILLS } from './domainsCurrencies.ts';
 import { PLAYABLE_COUNTRIES } from './countries.ts';
 import { LANGUAGES_EAST_SOUTH_ASIA } from './languages-east-south-asia.ts';
 import { LANGUAGES_EUROPE } from './languages-europe.ts';
@@ -196,15 +197,8 @@ export function getAllSkillIdsForSection(section: SectionId): string[] {
       ).map((c) => `drive:${c.id}`);
     case 'coverage':
       return PLAYABLE_COUNTRIES.map((c) => `cov:${c.id}`);
-    case 'domains-currencies': {
-      const covered = PLAYABLE_COUNTRIES.filter((c) => c.coverageTier !== 'none');
-      const domainSkills = covered.map((c) => `domain:${c.id}`);
-      const currencyCodes = Array.from(
-        new Set(covered.flatMap((c) => c.currencies.map((curr) => curr.code.toLowerCase())))
-      );
-      const currencySkills = currencyCodes.map((code) => `curr:${code}`);
-      return [...domainSkills, ...currencySkills];
-    }
+    case 'domains-currencies':
+      return DOMAINS_CURRENCIES_SKILLS.map((skill) => skill.id);
   }
 }
 
