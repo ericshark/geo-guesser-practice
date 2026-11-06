@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { App } from './main.tsx';
 import { CoverageSectionView } from './components/CoverageSectionView.tsx';
+import { DrivingSideSectionView } from './components/DrivingSideSectionView.tsx';
 import { LanguagesSectionView } from './components/LanguagesSectionView.tsx';
 import { WorldMapView } from './components/WorldMapView.tsx';
 import {
@@ -311,5 +312,54 @@ describe('UI & Highlighting Verification', () => {
     expect(feedbackHtml).toContain(
       'Regional Street View Coverage Notes (Limited Coverage)'
     );
+  });
+
+  it('renders DrivingSideSectionView Focus Picker, active drills, Guided Breakdown, and built-in "How to Spot Driving Side Without Cars" vector guide', async () => {
+    const store = new ProgressStore(createInMemoryProgressAdapter());
+    await store.load();
+    const engine = new PracticeEngine(store);
+
+    // 1. Focus Picker view with all 7 focuses, reference map, and "How to Spot Driving Side Without Cars" vector guide
+    const pickerHtml = renderToStaticMarkup(
+      React.createElement(DrivingSideSectionView, {
+        engine,
+        progress: store.getState(),
+        onBackToDashboard: () => {},
+      })
+    );
+
+    expect(pickerHtml).toContain('Driving Side Section');
+    expect(pickerHtml).toContain('Tricky Left/Right Borders &amp; Exceptions');
+    expect(pickerHtml).toContain('Southern &amp; Eastern Africa');
+    expect(pickerHtml).toContain('Americas &amp; Caribbean');
+    expect(pickerHtml).toContain('How to Spot Driving Side Without Cars');
+    expect(pickerHtml).toContain('1. Road-Edge Line Colors &amp; Stop Bars');
+    expect(pickerHtml).toContain(
+      '2. Sign Orientation &amp; Back-of-Sign Geometry'
+    );
+    expect(pickerHtml).toContain(
+      '3. Roundabout Circulation &amp; Splitter Islands'
+    );
+    expect(pickerHtml).toContain(
+      '4. Parked Vehicles &amp; Rear Plate Colors'
+    );
+    expect(pickerHtml).toContain(
+      '5. Camera-Car Lane Offset, Hood/Snorkel Clues &amp; Sun Shadow Geometry'
+    );
+    expect(pickerHtml).toContain(
+      'Interactive World Driving Side Reference Map'
+    );
+
+    // 2. Render active Regional Map Drill in Europe
+    const mapDrillHtml = renderToStaticMarkup(
+      React.createElement(DrivingSideSectionView, {
+        engine,
+        progress: store.getState(),
+        initialFocus: 'europe',
+        onBackToDashboard: () => {},
+      })
+    );
+    expect(mapDrillHtml).toContain('Europe');
+    expect(mapDrillHtml).toContain('How to Spot Driving Side Without Cars');
   });
 });

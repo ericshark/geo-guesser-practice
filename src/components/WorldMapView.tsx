@@ -17,6 +17,8 @@ export interface WorldMapViewProps {
   evaluation?: MapSelectionEvaluation | null;
   highlightedCoverageCountryIds?: string[];
   showAllCoverageTiers?: boolean;
+  highlightedDrivingCountryIds?: string[];
+  showAllDrivingSides?: boolean;
   initialRegionPreset?: MapRegionPresetId;
   activeRegionPreset?: MapRegionPresetId;
   onRegionPresetChange?: (presetId: MapRegionPresetId) => void;
@@ -32,7 +34,9 @@ type CountryVisualStatus =
   | 'incorrect'
   | 'tier-official'
   | 'tier-limited'
-  | 'tier-none';
+  | 'tier-none'
+  | 'driving-left'
+  | 'driving-right';
 
 interface EnrichedCountryGeometry extends CountryMapGeometry {
   country: PlayableCountry;
@@ -44,6 +48,8 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   evaluation = null,
   highlightedCoverageCountryIds = [],
   showAllCoverageTiers = false,
+  highlightedDrivingCountryIds = [],
+  showAllDrivingSides = false,
   initialRegionPreset = 'world',
   activeRegionPreset: controlledPreset,
   onRegionPresetChange,
@@ -80,6 +86,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
     () => new Set(highlightedCoverageCountryIds),
     [highlightedCoverageCountryIds]
   );
+  const highlightedDrivingSet = useMemo(
+    () => new Set(highlightedDrivingCountryIds),
+    [highlightedDrivingCountryIds]
+  );
   const correctSet = useMemo(
     () => new Set(evaluation?.correctCountryIds ?? []),
     [evaluation]
@@ -106,6 +116,11 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
       if (tier === 'limited') return 'tier-limited';
       if (tier === 'none') return 'tier-none';
     }
+    if (showAllDrivingSides || highlightedDrivingSet.has(countryId)) {
+      const side = PLAYABLE_COUNTRY_MAP[countryId]?.drivingSide;
+      if (side === 'left') return 'driving-left';
+      if (side === 'right') return 'driving-right';
+    }
     return selectedSet.has(countryId) ? 'selected' : 'default';
   };
 
@@ -125,6 +140,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
         return '◐ Limited Coverage';
       case 'tier-none':
         return '○ None (No Coverage)';
+      case 'driving-left':
+        return 'L Left-Hand Traffic';
+      case 'driving-right':
+        return 'R Right-Hand Traffic';
       default:
         return null;
     }
@@ -141,6 +160,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
       case 'incorrect':
       case 'tier-none':
         return '✗';
+      case 'driving-left':
+        return 'L';
+      case 'driving-right':
+        return 'R';
       case 'selected':
         return '●';
       default:
@@ -301,6 +324,23 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                 ✗ None
               </span>
             </>
+          ) : showAllDrivingSides || highlightedDrivingCountryIds.length > 0 ? (
+            <>
+              <span className="inline-flex items-center gap-1 text-indigo-700 dark:text-indigo-300">
+                <span
+                  className="w-2.5 h-2.5 rounded-xs bg-indigo-500 inline-block"
+                  aria-hidden="true"
+                />
+                L Left-Hand Traffic
+              </span>
+              <span className="inline-flex items-center gap-1 text-teal-700 dark:text-teal-300">
+                <span
+                  className="w-2.5 h-2.5 rounded-xs bg-teal-500 inline-block"
+                  aria-hidden="true"
+                />
+                R Right-Hand Traffic
+              </span>
+            </>
           ) : (
             <span className="inline-flex items-center gap-1">
               <span
@@ -359,6 +399,12 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               } else if (status === 'incorrect' || status === 'tier-none') {
                 fillClass = 'fill-rose-500 dark:fill-rose-500';
                 strokeClass = 'stroke-rose-900 dark:stroke-rose-200';
+              } else if (status === 'driving-left') {
+                fillClass = 'fill-indigo-500 dark:fill-indigo-500';
+                strokeClass = 'stroke-indigo-900 dark:stroke-indigo-200';
+              } else if (status === 'driving-right') {
+                fillClass = 'fill-teal-500 dark:fill-teal-600';
+                strokeClass = 'stroke-teal-900 dark:stroke-teal-200';
               }
 
               return (
@@ -390,8 +436,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             })}
           </g>
 
-          {/* Evaluated Status Pin Labels or Coverage Tier Pin Labels on Highlighted Countries */}
-          {(evaluation || highlightedCoverageCountryIds.length > 0) && (
+          {/* Evaluated Status Pin Labels or Coverage/Driving Pin Labels on Highlighted Countries */}
+          {(evaluation ||
+            highlightedCoverageCountryIds.length > 0 ||
+            highlightedDrivingCountryIds.length > 0) && (
             <g data-layer="evaluation-badges" className="pointer-events-none">
               {(evaluation
                 ? [
@@ -408,7 +456,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                       status: 'incorrect' as const,
                     })),
                   ]
-                : highlightedCoverageCountryIds.map((id) => ({
+                : (highlightedCoverageCountryIds.length > 0
+                    ? highlightedCoverageCountryIds
+                    : highlightedDrivingCountryIds
+                  ).map((id) => ({
                     id,
                     status: getCountryStatus(id),
                   }))
@@ -424,7 +475,11 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                     ? '#059669'
                     : status === 'missed' || status === 'tier-limited'
                       ? '#D97706'
-                      : '#E11D48';
+                      : status === 'driving-left'
+                        ? '#4F46E5'
+                        : status === 'driving-right'
+                          ? '#0D9488'
+                          : '#E11D48';
                 return (
                   <g key={`eval-badge-${id}`} transform={`translate(${cx}, ${cy})`}>
                     <circle
@@ -480,6 +535,14 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               } else if (status === 'incorrect' || status === 'tier-none') {
                 pillFill = '#F43F5E';
                 pillStroke = '#881337';
+                pillText = '#FFFFFF';
+              } else if (status === 'driving-left') {
+                pillFill = '#4F46E5';
+                pillStroke = '#312E81';
+                pillText = '#FFFFFF';
+              } else if (status === 'driving-right') {
+                pillFill = '#0D9488';
+                pillStroke = '#134E4A';
                 pillText = '#FFFFFF';
               }
 
@@ -565,6 +628,11 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                   Coverage: <strong className="uppercase">{hoveredCountry.coverageTier}</strong>
                 </span>
               )}
+              {(evaluation || showAllDrivingSides || highlightedDrivingCountryIds.length > 0) && (
+                <span className="text-[11px] text-slate-500 dark:text-[#9AA0AA]">
+                  Driving: <strong className="uppercase">{hoveredCountry.drivingSide}-hand</strong>
+                </span>
+              )}
             </div>
           ) : (
             <span className="text-slate-500 dark:text-[#9AA0AA]">
@@ -614,6 +682,12 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             } else if (status === 'incorrect' || status === 'tier-none') {
               pillStyle =
                 'bg-rose-600 text-white border-rose-700 dark:bg-rose-600 dark:border-rose-400';
+            } else if (status === 'driving-left') {
+              pillStyle =
+                'bg-indigo-600 text-white border-indigo-700 dark:bg-indigo-600 dark:border-indigo-400';
+            } else if (status === 'driving-right') {
+              pillStyle =
+                'bg-teal-600 text-white border-teal-700 dark:bg-teal-600 dark:border-teal-400';
             }
 
             return (
@@ -691,6 +765,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               chipClass = 'bg-amber-500 text-slate-950 border-amber-700 font-semibold';
             } else if (status === 'incorrect' || status === 'tier-none') {
               chipClass = 'bg-rose-600 text-white border-rose-700';
+            } else if (status === 'driving-left') {
+              chipClass = 'bg-indigo-600 text-white border-indigo-700';
+            } else if (status === 'driving-right') {
+              chipClass = 'bg-teal-600 text-white border-teal-700';
             }
 
             return (

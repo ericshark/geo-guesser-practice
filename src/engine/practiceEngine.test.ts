@@ -1,17 +1,22 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ProgressStore, createInMemoryProgressAdapter } from '../storage/index.ts';
 import {
+  DRIVING_SIDE_FLUENCY_THRESHOLD_MS,
   PracticeEngine,
   calculateMasteryState,
   computeArtsPriority,
   evaluateCountryBridgeSelection,
   evaluateCoverageMapSelection,
+  evaluateDrivingMapSelection,
   getTopConfusionPairs,
   getWeakestLearningSkills,
 } from './practiceEngine.ts';
 import {
   COVERAGE_FOCUS_OPTIONS,
+  DRIVING_SIDE_FOCUS_OPTIONS,
+  computeDrivingSideNarrowingCandidates,
   getCountriesForCoverageFocus,
+  getCountriesForDrivingSideFocus,
   LANGUAGE_MAP,
   PLAYABLE_COUNTRY_MAP,
 } from '../data/index.ts';
@@ -769,5 +774,288 @@ describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)',
     }
     expect(store.getState().skills['cov:ng'].mastery).toBe('mastered');
     expect(store.getSectionMasteryBreakdown('coverage').mastered).toBe(1);
+  });
+
+  it('verifies Driving Side Regional Map Drills across Europe, Southern & Eastern Africa, South & SE Asia, Oceania, and Americas & Caribbean', async () => {
+    expect(DRIVING_SIDE_FOCUS_OPTIONS.map((f) => f.id)).toEqual([
+      'world',
+      'tricky-borders',
+      'europe',
+      'southern-eastern-africa',
+      'south-se-asia',
+      'oceania',
+      'americas-caribbean',
+    ]);
+
+    // 1. Europe regional map drill: gb, ie, im, je, gg, mt, cy
+    const europeMapTrial = engine.startDrivingSideSession({
+      focusId: 'europe',
+      drillMode: 'regional-map',
+    });
+    expect(europeMapTrial.kind).toBe('driving-map');
+    expect(europeMapTrial.drivingPrompt!.promptTitle).toContain(
+      'Click every left-driving covered country in Europe'
+    );
+    expect([...europeMapTrial.drivingPrompt!.expectedCountryIds!].sort()).toEqual(
+      ['cy', 'gb', 'gg', 'ie', 'im', 'je', 'mt']
+    );
+
+    const europeExact = await engine.submitDrivingMapAnswer(
+      europeMapTrial.drivingPrompt!.expectedCountryIds!,
+      2400
+    );
+    expect(europeExact.correct).toBe(true);
+    expect(europeExact.mapEvaluation?.perfect).toBe(true);
+
+    // 2. Southern & Eastern Africa regional map drill: za, bw, sz, ls, ke, ug (while tz, na, zw, zm, mz are uncovered left-driving notes)
+    const africaMapTrial = engine.startDrivingSideSession({
+      focusId: 'southern-eastern-africa',
+      drillMode: 'regional-map',
+    });
+    expect(africaMapTrial.drivingPrompt!.promptTitle).toContain(
+      'Click every left-driving covered country in Southern & Eastern Africa'
+    );
+    expect([...africaMapTrial.drivingPrompt!.expectedCountryIds!].sort()).toEqual(
+      ['bw', 'ke', 'ls', 'sz', 'ug', 'za']
+    );
+    expect(africaMapTrial.drivingPrompt!.uncoveredCountryNotes!.join(' ')).toMatch(
+      /Tanzania|Namibia/
+    );
+
+    // 3. South & SE Asia regional map drill: th, my, sg, id, in, bd, lk, bt, pk
+    const asiaMapTrial = engine.startDrivingSideSession({
+      focusId: 'south-se-asia',
+      drillMode: 'regional-map',
+    });
+    expect(asiaMapTrial.drivingPrompt!.promptTitle).toContain(
+      'Click every left-driving covered country in South & SE Asia'
+    );
+    expect(asiaMapTrial.drivingPrompt!.expectedCountryIds!).toEqual(
+      expect.arrayContaining([
+        'th',
+        'my',
+        'sg',
+        'id',
+        'in',
+        'bd',
+        'lk',
+        'bt',
+        'pk',
+      ])
+    );
+
+    // 4. Oceania regional map drill: au, nz, cx (while gu, mp, as are right-driving US territories)
+    const oceaniaMapTrial = engine.startDrivingSideSession({
+      focusId: 'oceania',
+      drillMode: 'regional-map',
+    });
+    expect(oceaniaMapTrial.drivingPrompt!.promptTitle).toContain(
+      'Click every left-driving covered country in Oceania'
+    );
+    expect(
+      [...oceaniaMapTrial.drivingPrompt!.expectedCountryIds!].sort()
+    ).toEqual(['au', 'cx', 'nz']);
+
+    // 5. Americas & Caribbean regional map drill: vi, bm are covered left-driving; gy & sr are left-driving but coverageTier === 'none'
+    const americasMapTrial = engine.startDrivingSideSession({
+      focusId: 'americas-caribbean',
+      drillMode: 'regional-map',
+    });
+    expect(americasMapTrial.drivingPrompt!.promptTitle).toContain(
+      'Click every left-driving covered country in Americas & Caribbean'
+    );
+    expect(
+      [...americasMapTrial.drivingPrompt!.expectedCountryIds!].sort()
+    ).toEqual(['bm', 'vi']);
+    expect(
+      americasMapTrial.drivingPrompt!.uncoveredCountryNotes!.join(' ')
+    ).toMatch(/Guyana|Suriname/);
+
+    // Verify evaluateDrivingMapSelection flags uncovered Guyana ('gy') in incorrectUncoveredCountryIds if clicked
+    const evalWithGuyana = evaluateDrivingMapSelection(
+      americasMapTrial.drivingPrompt!.expectedCountryIds!,
+      ['bm', 'gy']
+    );
+    expect(evalWithGuyana.perfect).toBe(false);
+    expect(evalWithGuyana.correctCountryIds).toEqual(['bm']);
+    expect(evalWithGuyana.missedCountryIds).toEqual(['vi']);
+    expect(evalWithGuyana.incorrectCountryIds).toEqual(['gy']);
+    expect(evalWithGuyana.incorrectUncoveredCountryIds).toEqual(['gy']);
+  });
+
+  it('verifies Left/Right Speed Drills (<2500ms fluency ceiling), tricky border contrasts, and Mastery State progression', async () => {
+    expect(DRIVING_SIDE_FLUENCY_THRESHOLD_MS).toBe(2500);
+
+    // Verify tricky border pool includes Thailand vs Cambodia/Laos, HK/Macau vs Taiwan, Guyana/Suriname, Kenya/Uganda/Rwanda, Ghana/Nigeria/Senegal
+    const trickyIds = getCountriesForDrivingSideFocus('tricky-borders').map(
+      (c) => c.id
+    );
+    expect(trickyIds).toEqual(
+      expect.arrayContaining([
+        'th',
+        'kh',
+        'la',
+        'hk',
+        'mo',
+        'tw',
+        'gy',
+        'sr',
+        'ke',
+        'ug',
+        'rw',
+        'gh',
+        'ng',
+        'sn',
+        'vi',
+        'pr',
+        'mt',
+        'cy',
+      ])
+    );
+
+    const firstSpeedTrial = engine.startDrivingSideSession({
+      focusId: 'tricky-borders',
+      drillMode: 'speed-left-right',
+    });
+    expect(firstSpeedTrial.kind).toBe('driving-speed');
+    expect(firstSpeedTrial.drivingPrompt?.targetCountry).toBeDefined();
+
+    const targetCountry = firstSpeedTrial.drivingPrompt!.targetCountry;
+    const skillId = `drive:${targetCountry.id}`;
+
+    // Advance clock by 1800ms (< 2500ms ceiling) and submit correct driving side
+    currentTime += 1800;
+    const fastFeedback = await engine.submitDrivingSideAnswer(
+      `side:${targetCountry.drivingSide}`
+    );
+    expect(fastFeedback.correct).toBe(true);
+    expect(fastFeedback.isFluentSpeed).toBe(true);
+    expect(fastFeedback.responseTimeMs).toBe(1800);
+    expect(fastFeedback.borderContrastNotes.length).toBeGreaterThan(0);
+
+    // Verify calculateMasteryState with 2500ms ceiling:
+    // 4 unaided correct attempts at 2800ms (>2500ms) -> 'recognized' (NOT 'mastered')
+    const slowFluentAttempts = Array.from({ length: 4 }, (_, idx) => ({
+      timestamp: currentTime + idx * 1000,
+      correct: true,
+      responseTimeMs: 2800,
+      assisted: false,
+      chosenSkillId: 'side:left',
+      sampleId: `speed-${idx}`,
+    }));
+    expect(
+      calculateMasteryState(
+        slowFluentAttempts,
+        DRIVING_SIDE_FLUENCY_THRESHOLD_MS
+      )
+    ).toBe('recognized');
+
+    // Add 3 fast unaided correct attempts at 1900ms (<2500ms) -> 'mastered'
+    const fastFluentAttempts = [
+      ...slowFluentAttempts,
+      ...Array.from({ length: 3 }, (_, idx) => ({
+        timestamp: currentTime + (idx + 5) * 1000,
+        correct: true,
+        responseTimeMs: 1900,
+        assisted: false,
+        chosenSkillId: 'side:left',
+        sampleId: `speed-fast-${idx}`,
+      })),
+    ];
+    expect(
+      calculateMasteryState(
+        fastFluentAttempts,
+        DRIVING_SIDE_FLUENCY_THRESHOLD_MS
+      )
+    ).toBe('mastered');
+
+    // Verify Guided Breakdown on Driving Side trial marks trial assisted and updates Dashboard Mastery State
+    const secondSpeedTrial = engine.nextTrial();
+    const secondCountry = secondSpeedTrial.drivingPrompt!.targetCountry;
+    const breakdown = engine.requestGuidedBreakdown();
+    expect(breakdown.assisted).toBe(true);
+    expect(breakdown.languageName).toContain(secondCountry.name);
+
+    currentTime += 1400;
+    const assistedFeedback = await engine.submitDrivingSideAnswer(
+      `side:${secondCountry.drivingSide}`
+    );
+    expect(assistedFeedback.assisted).toBe(true);
+    expect(assistedFeedback.newMastery).toBe('learning');
+
+    const drivingBreakdown = store.getSectionMasteryBreakdown('driving-side');
+    expect(drivingBreakdown.practicedTrials).toBeGreaterThanOrEqual(2);
+    expect(drivingBreakdown.learning).toBeGreaterThanOrEqual(1);
+    expect(store.getState().skills[skillId]).toBeDefined();
+  });
+
+  it('verifies Multi-Clue Narrowing Candidate Countries intersection (Driving Side + Script / Region / Sign Text Sample)', async () => {
+    // 1. "Left-hand traffic + Latin script in Africa" -> za, bw, sz, ls, ke, ug (covered) + tz, na, zw, zm, mz (uncovered notes)
+    const africaLeftLatin = computeDrivingSideNarrowingCandidates({
+      drivingSide: 'left',
+      region: 'Africa',
+      script: 'Latin',
+    });
+    expect(africaLeftLatin.candidateCountries.map((c) => c.id).sort()).toEqual([
+      'bw',
+      'ke',
+      'ls',
+      'sz',
+      'ug',
+      'za',
+    ]);
+    expect(
+      africaLeftLatin.uncoveredMatchingCountries.map((c) => c.id)
+    ).toEqual(expect.arrayContaining(['tz', 'na']));
+
+    // 2. "Right-hand traffic + Latin script in Africa" -> gh, ng, sn, rw, mg, re, tn
+    const africaRightLatin = computeDrivingSideNarrowingCandidates({
+      drivingSide: 'right',
+      region: 'Africa',
+      script: 'Latin',
+    });
+    expect(africaRightLatin.candidateCountries.map((c) => c.id)).toEqual(
+      expect.arrayContaining(['gh', 'ng', 'rw', 'sn'])
+    );
+
+    // 3. "Left-hand traffic + Sign Text sample (Indonesian / Malay)" -> cx, id, my, sg
+    const malayIndoLeft = computeDrivingSideNarrowingCandidates({
+      drivingSide: 'left',
+      languageId: 'id',
+    });
+    expect(malayIndoLeft.candidateCountries.map((c) => c.id).sort()).toEqual([
+      'cx',
+      'id',
+      'my',
+      'sg',
+    ]);
+
+    // 4. "Left-hand traffic + Traditional Chinese Sign Text sample" -> hk, mo (excludes right-driving Taiwan 'tw')
+    const zhHantLeft = computeDrivingSideNarrowingCandidates({
+      drivingSide: 'left',
+      languageId: 'zh-hant',
+    });
+    expect(zhHantLeft.candidateCountries.map((c) => c.id).sort()).toEqual([
+      'hk',
+      'mo',
+    ]);
+
+    // 5. Run a multi-clue narrowing session through PracticeEngine
+    const narrowingTrial = engine.startDrivingSideSession({
+      focusId: 'southern-eastern-africa',
+      drillMode: 'multi-clue-narrowing',
+    });
+    expect(narrowingTrial.kind).toBe('driving-narrowing');
+    expect(narrowingTrial.drivingPrompt!.narrowingClueSummary).toBeTruthy();
+    expect(
+      narrowingTrial.drivingPrompt!.expectedCountryIds!.length
+    ).toBeGreaterThan(0);
+
+    const narrowingFeedback = await engine.submitDrivingMapAnswer(
+      narrowingTrial.drivingPrompt!.expectedCountryIds!,
+      2900
+    );
+    expect(narrowingFeedback.correct).toBe(true);
+    expect(narrowingFeedback.mapEvaluation?.perfect).toBe(true);
   });
 });

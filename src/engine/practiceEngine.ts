@@ -1,8 +1,12 @@
 import {
+  computeDrivingSideNarrowingCandidates,
   COVERAGE_FOCUS_MAP,
+  DRIVING_SIDE_FOCUS_MAP,
   findTellMatchesInSample,
   getCandidateCountriesForLanguage,
   getCountriesForCoverageFocus,
+  getCountriesForDrivingSideFocus,
+  getCountryScripts,
   getLanguagesForGroupSelection,
   inferBestRegionPresetForCountries,
   LANGUAGE_GROUP_MAP,
@@ -12,6 +16,9 @@ import {
   PLAYABLE_COUNTRY_MAP,
   type CoverageFocusId,
   type CoverageTier,
+  type DrivingSide,
+  type DrivingSideFocusId,
+  type DrivingSideNarrowingFilter,
   type LanguageGroupId,
   type LanguageGroupSelectionId,
   type LanguageSample,
@@ -232,12 +239,16 @@ export function getWeakestLearningSkills(
 
     const info = resolveSkillDisplayInfo(skillId);
     const learningBonus = record.mastery === 'learning' ? 100 : 20;
+    const fluencyCeiling =
+      record.section === 'driving-side'
+        ? DRIVING_SIDE_FLUENCY_THRESHOLD_MS
+        : LANGUAGE_FLUENCY_THRESHOLD_MS;
     const weaknessScore =
       learningBonus +
       (100 - accuracyPercent) * 0.6 +
       assistedCount * 12 +
       confusionCount * 15 +
-      Math.min(30, Math.max(0, (averageRtMs - LANGUAGE_FLUENCY_THRESHOLD_MS) / 250));
+      Math.min(30, Math.max(0, (averageRtMs - fluencyCeiling) / 250));
 
     summaries.push({
       skillId,
@@ -308,6 +319,47 @@ export interface CoverageTrialPrompt {
   expectedCountryIds?: string[];
 }
 
+export type DrivingSideDrillMode =
+  | 'mixed'
+  | 'speed-left-right'
+  | 'regional-map'
+  | 'multi-clue-narrowing';
+
+export interface DrivingSideSessionConfig {
+  focusId: DrivingSideFocusId;
+  drillMode?: DrivingSideDrillMode;
+}
+
+export interface DrivingSideBorderContrastNote {
+  countryId: string;
+  countryName: string;
+  region: string;
+  subregion: string;
+  drivingSide: DrivingSide;
+  coverageTier: CoverageTier;
+  drivingNote: string;
+}
+
+export interface DrivingSideTrialPrompt {
+  focusId: DrivingSideFocusId;
+  focusLabel: string;
+  drillKind: 'driving-speed' | 'driving-map' | 'driving-narrowing';
+  targetCountry: PlayableCountry;
+  promptTitle: string;
+  promptDescription: string;
+  suggestedRegionPreset: MapRegionPresetId;
+  mapRegionLabel?: string;
+  mapTargetSide?: DrivingSide;
+  regionPoolCountries?: PlayableCountry[];
+  expectedCountryIds?: string[];
+  narrowingFilter?: DrivingSideNarrowingFilter;
+  narrowingClueSummary?: string;
+  signLanguage?: LanguageSpec;
+  signSample?: LanguageSample;
+  matchedTells?: TellSpanMatch[];
+  uncoveredCountryNotes?: string[];
+}
+
 export interface ContrastCardLanguageEntry {
   id: string;
   skillId: string;
@@ -347,7 +399,10 @@ export type LanguageTrialKind =
   | 'country-bridge'
   | 'coverage-tier'
   | 'coverage-cluster'
-  | 'coverage-map';
+  | 'coverage-map'
+  | 'driving-speed'
+  | 'driving-map'
+  | 'driving-narrowing';
 
 export interface CountryBridgePrompt {
   languageId: string;
@@ -427,6 +482,9 @@ export interface GuidedBreakdown {
   coverageTier?: CoverageTier;
   coverageNote?: string;
   regionalLimitedNotes?: RegionalCoverageNote[];
+  drivingSide?: DrivingSide;
+  drivingNote?: string;
+  borderContrastNotes?: DrivingSideBorderContrastNote[];
   assisted: true;
   queuedFollowUps: number;
 }
@@ -435,7 +493,7 @@ export interface PracticeTrial {
   trialNumber: number;
   section?: SectionId;
   kind: LanguageTrialKind;
-  skillId: string; // e.g., 'lang:cs' or 'cov:ng'
+  skillId: string; // e.g., 'lang:cs' or 'cov:ng' or 'drive:ke'
   contrastedSkillId?: string; // e.g., 'lang:sk' when kind === 'triggered-contrast'
   languageId: string;
   groupName: string;
@@ -452,6 +510,7 @@ export interface PracticeTrial {
   countryId?: string;
   country?: PlayableCountry;
   coveragePrompt?: CoverageTrialPrompt;
+  drivingPrompt?: DrivingSideTrialPrompt;
   assisted?: boolean;
   isFollowUp?: boolean;
   options: TrialOption[];
@@ -484,6 +543,28 @@ export interface CoverageTrialFeedback {
   mapHighlightedCountryIds: string[];
   regionalLimitedNotes: RegionalCoverageNote[];
   trapCountryNotes: RegionalCoverageNote[];
+  mapEvaluation?: MapSelectionEvaluation;
+}
+
+export interface DrivingSideTrialFeedback {
+  correct: boolean;
+  assisted: boolean;
+  skillId: string; // 'drive:<countryId>'
+  countryId: string;
+  countryName: string;
+  country: PlayableCountry;
+  drivingSide: DrivingSide;
+  drivingNote: string;
+  chosenOptionId: string;
+  chosenLabel: string;
+  responseTimeMs: number;
+  fluencyTargetMs: number;
+  isFluentSpeed: boolean;
+  previousMastery: MasteryState;
+  newMastery: MasteryState;
+  mapHighlightedCountryIds: string[];
+  borderContrastNotes: DrivingSideBorderContrastNote[];
+  uncoveredCountryNotes: string[];
   mapEvaluation?: MapSelectionEvaluation;
 }
 
@@ -521,6 +602,10 @@ export interface LanguageTrialFeedback {
   trapCountryNotes?: RegionalCoverageNote[];
   mapHighlightedCountryIds?: string[];
   coverageFeedback?: CoverageTrialFeedback;
+  drivingSide?: DrivingSide;
+  drivingNote?: string;
+  borderContrastNotes?: DrivingSideBorderContrastNote[];
+  drivingFeedback?: DrivingSideTrialFeedback;
 }
 
 export interface SessionStats {
@@ -644,6 +729,79 @@ function toRegionalCoverageNote(country: PlayableCountry): RegionalCoverageNote 
   };
 }
 
+export function evaluateDrivingMapSelection(
+  expectedCountryIds: string[],
+  selectedCountryIds: string[],
+  regionPoolCountries?: PlayableCountry[],
+  customUncoveredNotes?: string[]
+): MapSelectionEvaluation {
+  const normalizedExpected = Array.from(
+    new Set(expectedCountryIds.map((id) => id.trim().toLowerCase()).filter(Boolean))
+  );
+  const expectedSet = new Set(normalizedExpected);
+  const uniqueSelected = Array.from(
+    new Set(selectedCountryIds.map((id) => id.trim().toLowerCase()).filter(Boolean))
+  );
+  const selectedSet = new Set(uniqueSelected);
+
+  const correctCountryIds = uniqueSelected.filter((id) => expectedSet.has(id));
+  const missedCountryIds = normalizedExpected.filter((id) => !selectedSet.has(id));
+  const incorrectCountryIds = uniqueSelected.filter((id) => !expectedSet.has(id));
+  const incorrectUncoveredCountryIds = incorrectCountryIds.filter(
+    (id) => PLAYABLE_COUNTRY_MAP[id]?.coverageTier === 'none'
+  );
+
+  const toCountries = (ids: string[]): PlayableCountry[] =>
+    ids
+      .map((id) => PLAYABLE_COUNTRY_MAP[id])
+      .filter((c): c is PlayableCountry => Boolean(c));
+
+  const poolForNotes =
+    regionPoolCountries ??
+    toCountries([...normalizedExpected, ...incorrectCountryIds]);
+
+  const uncoveredCountryNotes =
+    customUncoveredNotes && customUncoveredNotes.length > 0
+      ? customUncoveredNotes
+      : poolForNotes
+          .filter((c) => c.coverageTier === 'none')
+          .slice(0, 6)
+          .map(
+            (c) =>
+              `${c.name} (${c.drivingSide.toUpperCase()}, None coverage): ${
+                c.drivingNote ?? c.coverageNote
+              }`
+          );
+
+  return {
+    selectedCountryIds: uniqueSelected,
+    expectedCountryIds: normalizedExpected,
+    correctCountryIds,
+    missedCountryIds,
+    incorrectCountryIds,
+    incorrectUncoveredCountryIds,
+    correctCountries: toCountries(correctCountryIds),
+    missedCountries: toCountries(missedCountryIds),
+    incorrectCountries: toCountries(incorrectCountryIds),
+    uncoveredCountryNotes,
+    perfect: missedCountryIds.length === 0 && incorrectCountryIds.length === 0,
+  };
+}
+
+function toDrivingBorderContrastNote(
+  country: PlayableCountry
+): DrivingSideBorderContrastNote {
+  return {
+    countryId: country.id,
+    countryName: country.name,
+    region: country.region,
+    subregion: country.subregion,
+    drivingSide: country.drivingSide,
+    coverageTier: country.coverageTier,
+    drivingNote: country.drivingNote ?? country.coverageNote,
+  };
+}
+
 export class PracticeEngine {
   private store: ProgressStore;
   private now: () => number;
@@ -654,12 +812,15 @@ export class PracticeEngine {
   private drillMode: LanguageDrillMode = 'mixed';
   private activeCoverageFocus: CoverageFocusId = 'world';
   private coverageDrillMode: CoverageDrillMode = 'mixed';
+  private activeDrivingFocus: DrivingSideFocusId = 'world';
+  private drivingDrillMode: DrivingSideDrillMode = 'mixed';
   private stage0Prime: ContrastCardPrime | null = null;
   private currentTrial: PracticeTrial | null = null;
   private currentTrialAssisted = false;
   private activeGuidedBreakdown: GuidedBreakdown | null = null;
   private lastFeedback: LanguageTrialFeedback | null = null;
   private lastCoverageFeedback: CoverageTrialFeedback | null = null;
+  private lastDrivingFeedback: DrivingSideTrialFeedback | null = null;
 
   private sessionTrialCounter = 0;
   private sessionLastPresentedAt = new Map<string, number>();
@@ -786,6 +947,35 @@ export class PracticeEngine {
     this.activeGuidedBreakdown = null;
     this.lastFeedback = null;
     this.lastCoverageFeedback = null;
+    this.lastDrivingFeedback = null;
+    this.sessionStats = {
+      trialsCompleted: 0,
+      correctCount: 0,
+      fluentCount: 0,
+      averageResponseTimeMs: 0,
+    };
+    return this.nextTrial();
+  }
+
+  startDrivingSideSession(config: DrivingSideSessionConfig): PracticeTrial {
+    this.activeSection = 'driving-side';
+    this.activeDrivingFocus = config.focusId;
+    this.drivingDrillMode = config.drillMode ?? 'mixed';
+    this.stage0Prime = null;
+    this.sessionTrialCounter = 0;
+    this.sessionLastPresentedAt.clear();
+    this.followUpQueue = [];
+    this.pendingContrastQueue = [];
+    this.pendingBridgeQueue = [];
+    this.sessionBridgedLangs.clear();
+    this.pairConfusionsSinceTrigger.clear();
+    this.sessionPairBoostBySkill.clear();
+    this.currentTrial = null;
+    this.currentTrialAssisted = false;
+    this.activeGuidedBreakdown = null;
+    this.lastFeedback = null;
+    this.lastCoverageFeedback = null;
+    this.lastDrivingFeedback = null;
     this.sessionStats = {
       trialsCompleted: 0,
       correctCount: 0,
@@ -797,6 +987,18 @@ export class PracticeEngine {
 
   getActiveSection(): SectionId {
     return this.activeSection;
+  }
+
+  getActiveDrivingFocus(): DrivingSideFocusId {
+    return this.activeDrivingFocus;
+  }
+
+  getDrivingDrillMode(): DrivingSideDrillMode {
+    return this.drivingDrillMode;
+  }
+
+  getLastDrivingFeedback(): DrivingSideTrialFeedback | null {
+    return this.lastDrivingFeedback;
   }
 
   getActiveCoverageFocus(): CoverageFocusId {
@@ -896,6 +1098,15 @@ export class PracticeEngine {
       return this.buildCoverageGuidedBreakdown(trial);
     }
 
+    if (
+      trial.section === 'driving-side' ||
+      trial.kind === 'driving-speed' ||
+      trial.kind === 'driving-map' ||
+      trial.kind === 'driving-narrowing'
+    ) {
+      return this.buildDrivingGuidedBreakdown(trial);
+    }
+
     const targetLanguage = LANGUAGE_MAP[trial.languageId];
     const matchedTells = findTellMatchesInSample(trial.sample, targetLanguage);
     const candidateCountries = getCandidateCountriesForLanguage(targetLanguage);
@@ -992,11 +1203,16 @@ export class PracticeEngine {
     this.sessionTrialCounter += 1;
     this.lastFeedback = null;
     this.lastCoverageFeedback = null;
+    this.lastDrivingFeedback = null;
     this.currentTrialAssisted = false;
     this.activeGuidedBreakdown = null;
 
     if (this.activeSection === 'coverage') {
       return this.nextCoverageTrial();
+    }
+
+    if (this.activeSection === 'driving-side') {
+      return this.nextDrivingSideTrial();
     }
 
     // 1. Check if a Stage 2 Triggered Contrast Card is pending
@@ -1141,6 +1357,26 @@ export class PracticeEngine {
       trial.kind === 'coverage-cluster'
     ) {
       await this.submitCoverageAnswer(chosenOptionId, explicitResponseTimeMs);
+      return this.lastFeedback!;
+    }
+
+    if (
+      trial.kind === 'driving-map' ||
+      trial.kind === 'driving-narrowing'
+    ) {
+      const parsedIds = chosenOptionId
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await this.submitDrivingMapAnswer(parsedIds, explicitResponseTimeMs);
+      return this.lastFeedback!;
+    }
+
+    if (
+      trial.section === 'driving-side' ||
+      trial.kind === 'driving-speed'
+    ) {
+      await this.submitDrivingSideAnswer(chosenOptionId, explicitResponseTimeMs);
       return this.lastFeedback!;
     }
 
@@ -2617,6 +2853,1022 @@ export class PracticeEngine {
       trapCountryNotes: cov.trapCountryNotes,
       mapHighlightedCountryIds: cov.mapHighlightedCountryIds,
       coverageFeedback: cov,
+    };
+  }
+
+  // ===========================================================================
+  // DRIVING SIDE SECTION (Regional Map Drills, Left/Right Speed Drills & Multi-Clue Narrowing)
+  // ===========================================================================
+
+  async submitDrivingSideAnswer(
+    chosenOptionId: string,
+    explicitResponseTimeMs?: number
+  ): Promise<DrivingSideTrialFeedback> {
+    const trial = this.currentTrial;
+    if (!trial || trial.kind !== 'driving-speed') {
+      throw new Error('No active Driving Side speed trial to submit an answer for.');
+    }
+
+    const targetCountry =
+      trial.country ??
+      PLAYABLE_COUNTRY_MAP[trial.countryId ?? trial.skillId.replace(/^drive:/, '')];
+    if (!targetCountry) {
+      throw new Error(`Unknown PlayableCountry for Driving Side skill ${trial.skillId}`);
+    }
+
+    const responseTimeMs =
+      explicitResponseTimeMs ?? Math.max(100, this.now() - trial.startedAtMs);
+    const normalizedChoice = chosenOptionId.trim().toLowerCase();
+
+    const correct =
+      normalizedChoice === `side:${targetCountry.drivingSide}` ||
+      normalizedChoice === targetCountry.drivingSide ||
+      normalizedChoice === trial.skillId.toLowerCase();
+
+    const assisted = this.currentTrialAssisted || Boolean(trial.assisted);
+
+    const state = this.store.getState();
+    const existingRecord = state.skills[trial.skillId];
+    const previousMastery: MasteryState = existingRecord?.mastery ?? 'unseen';
+    const existingAttempts: SkillAttempt[] = existingRecord?.attempts ?? [];
+
+    const recordedChosenSkillId = correct
+      ? trial.skillId
+      : normalizedChoice.startsWith('side:') || normalizedChoice.startsWith('drive:')
+        ? normalizedChoice
+        : `side:${normalizedChoice}`;
+
+    const simulatedAttempts: SkillAttempt[] = [
+      ...existingAttempts,
+      {
+        timestamp: this.now(),
+        correct,
+        responseTimeMs,
+        assisted,
+        chosenSkillId: recordedChosenSkillId,
+        sampleId: trial.sample.id,
+      },
+    ];
+
+    const newMastery = calculateMasteryState(
+      simulatedAttempts,
+      trial.fluencyThresholdMs
+    );
+
+    const prevTotalRt =
+      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
+    this.sessionStats.trialsCompleted += 1;
+    if (correct) {
+      this.sessionStats.correctCount += 1;
+      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
+        this.sessionStats.fluentCount += 1;
+      }
+    }
+    this.sessionStats.averageResponseTimeMs = Math.round(
+      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    );
+
+    await this.store.recordAttempt({
+      section: 'driving-side',
+      skillId: trial.skillId,
+      chosenSkillId: recordedChosenSkillId,
+      sampleId: trial.sample.id,
+      correct,
+      responseTimeMs,
+      assisted,
+      mastery: newMastery,
+      trialIndex: this.sessionTrialCounter,
+      now: new Date(this.now()),
+    });
+
+    const borderContrastNotes = this.collectDrivingBorderContrastNotes(targetCountry);
+    const mapHighlightedCountryIds = [
+      targetCountry.id,
+      ...borderContrastNotes.slice(0, 4).map((n) => n.countryId),
+    ];
+
+    const matchedOption = trial.options.find(
+      (o) =>
+        o.id.toLowerCase() === normalizedChoice ||
+        o.languageId.toLowerCase() === normalizedChoice
+    );
+    const chosenLabel = matchedOption?.label ?? chosenOptionId;
+    const drivingNote =
+      targetCountry.drivingNote ??
+      `Traffic in ${targetCountry.name} drives on the ${targetCountry.drivingSide.toUpperCase()}. ${targetCountry.coverageNote}`;
+
+    const drivingFeedback: DrivingSideTrialFeedback = {
+      correct,
+      assisted,
+      skillId: trial.skillId,
+      countryId: targetCountry.id,
+      countryName: targetCountry.name,
+      country: targetCountry,
+      drivingSide: targetCountry.drivingSide,
+      drivingNote,
+      chosenOptionId: recordedChosenSkillId,
+      chosenLabel,
+      responseTimeMs,
+      fluencyTargetMs: trial.fluencyThresholdMs,
+      isFluentSpeed: correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      previousMastery,
+      newMastery,
+      mapHighlightedCountryIds,
+      borderContrastNotes,
+      uncoveredCountryNotes:
+        targetCountry.coverageTier === 'none'
+          ? [
+              `${targetCountry.name} (${targetCountry.drivingSide.toUpperCase()}, None coverage): ${drivingNote}`,
+            ]
+          : [],
+    };
+
+    this.lastDrivingFeedback = drivingFeedback;
+    this.lastFeedback = this.toUnifiedDrivingLanguageFeedback(trial, drivingFeedback);
+    return drivingFeedback;
+  }
+
+  async submitDrivingMapAnswer(
+    selectedCountryIds: string[],
+    explicitResponseTimeMs?: number
+  ): Promise<DrivingSideTrialFeedback> {
+    const trial = this.currentTrial;
+    if (
+      !trial ||
+      (trial.kind !== 'driving-map' && trial.kind !== 'driving-narrowing') ||
+      !trial.drivingPrompt
+    ) {
+      throw new Error(
+        'No active Driving Side regional map or multi-clue narrowing trial to submit selections for.'
+      );
+    }
+
+    const prompt = trial.drivingPrompt;
+    const targetCountry = prompt.targetCountry;
+    const expectedCountryIds = prompt.expectedCountryIds ?? [targetCountry.id];
+    const regionPool = prompt.regionPoolCountries ?? [targetCountry];
+
+    const mapEvaluation = evaluateDrivingMapSelection(
+      expectedCountryIds,
+      selectedCountryIds,
+      regionPool,
+      prompt.uncoveredCountryNotes
+    );
+
+    const responseTimeMs =
+      explicitResponseTimeMs ?? Math.max(100, this.now() - trial.startedAtMs);
+    const correct = mapEvaluation.perfect;
+    const assisted = this.currentTrialAssisted || Boolean(trial.assisted);
+
+    const state = this.store.getState();
+    const existingRecord = state.skills[trial.skillId];
+    const previousMastery: MasteryState = existingRecord?.mastery ?? 'unseen';
+    const existingAttempts: SkillAttempt[] = existingRecord?.attempts ?? [];
+
+    const chosenSkillId = correct
+      ? trial.skillId
+      : `map:${mapEvaluation.selectedCountryIds.join(',') || 'none'}`;
+
+    const simulatedAttempts: SkillAttempt[] = [
+      ...existingAttempts,
+      {
+        timestamp: this.now(),
+        correct,
+        responseTimeMs,
+        assisted,
+        chosenSkillId,
+        sampleId: trial.sample.id,
+      },
+    ];
+
+    const newMastery = calculateMasteryState(
+      simulatedAttempts,
+      trial.fluencyThresholdMs
+    );
+
+    const prevTotalRt =
+      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
+    this.sessionStats.trialsCompleted += 1;
+    if (correct) {
+      this.sessionStats.correctCount += 1;
+      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
+        this.sessionStats.fluentCount += 1;
+      }
+    }
+    this.sessionStats.averageResponseTimeMs = Math.round(
+      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    );
+
+    await this.store.recordAttempt({
+      section: 'driving-side',
+      skillId: trial.skillId,
+      chosenSkillId,
+      sampleId: trial.sample.id,
+      correct,
+      responseTimeMs,
+      assisted,
+      mastery: newMastery,
+      trialIndex: this.sessionTrialCounter,
+      now: new Date(this.now()),
+    });
+
+    const borderContrastNotes = this.collectDrivingBorderContrastNotes(
+      targetCountry,
+      regionPool
+    );
+    const drivingNote =
+      targetCountry.drivingNote ??
+      `Traffic in ${targetCountry.name} drives on the ${targetCountry.drivingSide.toUpperCase()}. ${targetCountry.coverageNote}`;
+
+    const drivingFeedback: DrivingSideTrialFeedback = {
+      correct,
+      assisted,
+      skillId: trial.skillId,
+      countryId: targetCountry.id,
+      countryName: targetCountry.name,
+      country: targetCountry,
+      drivingSide: targetCountry.drivingSide,
+      drivingNote,
+      chosenOptionId: mapEvaluation.selectedCountryIds.join(','),
+      chosenLabel:
+        mapEvaluation.selectedCountryIds.length > 0
+          ? mapEvaluation.selectedCountryIds
+              .map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id)
+              .join(', ')
+          : 'None selected',
+      responseTimeMs,
+      fluencyTargetMs: trial.fluencyThresholdMs,
+      isFluentSpeed: correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      previousMastery,
+      newMastery,
+      mapHighlightedCountryIds: expectedCountryIds,
+      borderContrastNotes,
+      uncoveredCountryNotes: mapEvaluation.uncoveredCountryNotes,
+      mapEvaluation,
+    };
+
+    this.lastDrivingFeedback = drivingFeedback;
+    this.lastFeedback = this.toUnifiedDrivingLanguageFeedback(trial, drivingFeedback);
+    return drivingFeedback;
+  }
+
+  private buildDrivingGuidedBreakdown(trial: PracticeTrial): GuidedBreakdown {
+    const targetCountry =
+      trial.country ??
+      PLAYABLE_COUNTRY_MAP[trial.countryId ?? trial.skillId.replace(/^drive:/, '')] ??
+      PLAYABLE_COUNTRIES[0];
+
+    const existingQueuedForSkill = this.followUpQueue.filter(
+      (q) => q.skillId === trial.skillId
+    ).length;
+    const toEnqueue = Math.max(
+      0,
+      Math.min(GUIDED_BREAKDOWN_FOLLOW_UP_COUNT, 3 - existingQueuedForSkill)
+    );
+
+    for (let i = 0; i < toEnqueue; i++) {
+      this.followUpQueue.push({
+        skillId: trial.skillId,
+        languageId: targetCountry.id,
+        queuedAtTrial: this.sessionTrialCounter,
+      });
+    }
+
+    const drivingNote =
+      targetCountry.drivingNote ??
+      `Traffic in ${targetCountry.name} drives on the ${targetCountry.drivingSide.toUpperCase()}. ${targetCountry.coverageNote}`;
+    const borderContrastNotes = this.collectDrivingBorderContrastNotes(
+      targetCountry,
+      trial.drivingPrompt?.regionPoolCountries
+    );
+
+    const distractorEliminations: DistractorElimination[] = [];
+    if (trial.kind === 'driving-speed') {
+      const oppositeSide: DrivingSide =
+        targetCountry.drivingSide === 'left' ? 'right' : 'left';
+      const oppositeOpt = trial.options.find(
+        (o) => o.id === `side:${oppositeSide}` || o.languageId === oppositeSide
+      );
+      if (oppositeOpt) {
+        distractorEliminations.push({
+          optionId: oppositeOpt.id,
+          languageId: oppositeOpt.languageId,
+          languageName: oppositeOpt.label,
+          nativeName: oppositeOpt.sublabel,
+          reason: `Ruled out: ${targetCountry.name} (${targetCountry.subregion}) uses ${targetCountry.drivingSide.toUpperCase()}-hand traffic. ${drivingNote}`,
+          expectedTellsMissing: [],
+        });
+      }
+      for (const note of borderContrastNotes.slice(0, 2)) {
+        distractorEliminations.push({
+          optionId: `drive:${note.countryId}`,
+          languageId: note.countryId,
+          languageName: `${note.countryName} (${note.drivingSide.toUpperCase()})`,
+          nativeName: note.subregion,
+          reason: `Regional contrast: ${note.countryName} drives on the ${note.drivingSide.toUpperCase()} — ${note.drivingNote}`,
+          expectedTellsMissing: [],
+        });
+      }
+    } else {
+      for (const note of borderContrastNotes.slice(0, 3)) {
+        distractorEliminations.push({
+          optionId: `drive:${note.countryId}`,
+          languageId: note.countryId,
+          languageName: `${note.countryName} (${note.drivingSide.toUpperCase()})`,
+          nativeName: `${note.coverageTier.toUpperCase()} coverage`,
+          reason:
+            note.coverageTier === 'none'
+              ? `Uncovered trap: ${note.countryName} has None official Street View coverage (${note.drivingNote}).`
+              : `Contrasting neighbor: ${note.countryName} drives on the ${note.drivingSide.toUpperCase()} (${note.drivingNote}).`,
+          expectedTellsMissing: [],
+        });
+      }
+    }
+
+    const expectedCandidateIds =
+      trial.drivingPrompt?.expectedCountryIds ?? [targetCountry.id];
+    const candidateCountries = expectedCandidateIds
+      .map((id) => PLAYABLE_COUNTRY_MAP[id])
+      .filter((c): c is PlayableCountry => Boolean(c));
+
+    const uncoveredNotes =
+      trial.drivingPrompt?.uncoveredCountryNotes ??
+      borderContrastNotes
+        .filter((n) => n.coverageTier === 'none')
+        .map(
+          (n) =>
+            `${n.countryName} (${n.drivingSide.toUpperCase()}, None coverage): ${n.drivingNote}`
+        );
+
+    const matchedTells = trial.drivingPrompt?.matchedTells ?? [];
+
+    const breakdown: GuidedBreakdown = {
+      skillId: trial.skillId,
+      languageId: targetCountry.id,
+      languageName:
+        trial.kind === 'driving-map'
+          ? `${trial.drivingPrompt?.mapRegionLabel ?? targetCountry.region} Left-Driving Map`
+          : trial.kind === 'driving-narrowing'
+            ? trial.drivingPrompt?.narrowingClueSummary ?? targetCountry.name
+            : targetCountry.name,
+      nativeName: `${targetCountry.drivingSide.toUpperCase()}-Hand Traffic · ${targetCountry.subregion}`,
+      script:
+        trial.drivingPrompt?.signLanguage?.script ??
+        getCountryScripts(targetCountry).join(', '),
+      sample: trial.sample,
+      translation:
+        trial.drivingPrompt?.signSample?.translation ?? drivingNote,
+      matchedTells,
+      structuralClue: drivingNote,
+      gestaltNote: drivingNote,
+      contrastNote:
+        borderContrastNotes.length > 0
+          ? borderContrastNotes
+              .slice(0, 3)
+              .map(
+                (n) =>
+                  `${n.countryName} (${n.drivingSide.toUpperCase()}): ${n.drivingNote}`
+              )
+              .join(' · ')
+          : drivingNote,
+      distractorEliminations,
+      candidateCountries:
+        candidateCountries.length > 0 ? candidateCountries : [targetCountry],
+      uncoveredCountryNotes: uncoveredNotes,
+      countryId: targetCountry.id,
+      country: targetCountry,
+      coverageTier: targetCountry.coverageTier,
+      coverageNote: targetCountry.coverageNote,
+      drivingSide: targetCountry.drivingSide,
+      drivingNote,
+      borderContrastNotes,
+      assisted: true,
+      queuedFollowUps: this.getQueuedFollowUpCount(trial.skillId),
+    };
+
+    this.activeGuidedBreakdown = breakdown;
+    return breakdown;
+  }
+
+  private nextDrivingSideTrial(): PracticeTrial {
+    // 1. Check if any Guided Breakdown follow-up item has satisfied the D = 2 spacing delay
+    const eligibleFollowUpIdx = this.followUpQueue.findIndex((item) => {
+      const lastSeen = this.sessionLastPresentedAt.get(item.skillId);
+      const trialsSinceLastSeen =
+        lastSeen !== undefined ? this.sessionTrialCounter - lastSeen : 999;
+      return trialsSinceLastSeen > ARTS_SPACING_DELAY;
+    });
+
+    let targetCountry: PlayableCountry;
+    let isFollowUp = false;
+
+    if (eligibleFollowUpIdx !== -1) {
+      const followUp = this.followUpQueue.splice(eligibleFollowUpIdx, 1)[0];
+      const countryId = followUp.skillId.replace(/^drive:/, '');
+      targetCountry =
+        PLAYABLE_COUNTRY_MAP[countryId] ??
+        getCountriesForDrivingSideFocus(this.activeDrivingFocus)[0];
+      isFollowUp = true;
+    } else {
+      const pool = getCountriesForDrivingSideFocus(this.activeDrivingFocus);
+      targetCountry = this.selectNextDrivingCountryByArts(pool);
+    }
+
+    const skillId = `drive:${targetCountry.id}`;
+    this.sessionLastPresentedAt.set(skillId, this.sessionTrialCounter);
+
+    let drillKind: 'driving-speed' | 'driving-map' | 'driving-narrowing';
+    if (this.drivingDrillMode === 'speed-left-right') {
+      drillKind = 'driving-speed';
+    } else if (this.drivingDrillMode === 'regional-map') {
+      drillKind = 'driving-map';
+    } else if (this.drivingDrillMode === 'multi-clue-narrowing') {
+      drillKind = 'driving-narrowing';
+    } else {
+      // 'mixed' mode: interleave rapid Left/Right speed prompts (<2500ms ceiling), regional map drills, and multi-clue narrowing drills
+      if (isFollowUp) {
+        drillKind = 'driving-speed';
+      } else if (this.sessionTrialCounter % 4 === 0) {
+        drillKind = 'driving-map';
+      } else if (this.sessionTrialCounter % 3 === 0) {
+        drillKind = 'driving-narrowing';
+      } else {
+        drillKind = 'driving-speed';
+      }
+    }
+
+    if (drillKind === 'driving-map') {
+      this.currentTrial = this.buildDrivingMapTrial(targetCountry, isFollowUp);
+    } else if (drillKind === 'driving-narrowing') {
+      this.currentTrial = this.buildDrivingNarrowingTrial(
+        targetCountry,
+        isFollowUp
+      );
+    } else {
+      this.currentTrial = this.buildDrivingSpeedTrial(targetCountry, isFollowUp);
+    }
+
+    return this.currentTrial;
+  }
+
+  private buildDrivingSpeedTrial(
+    country: PlayableCountry,
+    isFollowUp: boolean
+  ): PracticeTrial {
+    const skillId = `drive:${country.id}`;
+    const focusSpec = DRIVING_SIDE_FOCUS_MAP[this.activeDrivingFocus];
+    const suggestedRegionPreset = inferBestRegionPresetForCountries([country]);
+    const drivingNote =
+      country.drivingNote ??
+      `Traffic in ${country.name} drives on the ${country.drivingSide.toUpperCase()}. ${country.coverageNote}`;
+
+    const options: TrialOption[] = [
+      {
+        id: 'side:left',
+        languageId: 'left',
+        label: 'Left-Hand Traffic (LHT)',
+        sublabel: 'Keep left · Steering wheel on right · Clockwise roundabouts',
+        shortcutKey: 1,
+      },
+      {
+        id: 'side:right',
+        languageId: 'right',
+        label: 'Right-Hand Traffic (RHT)',
+        sublabel: 'Keep right · Steering wheel on left · Counter-clockwise roundabouts',
+        shortcutKey: 2,
+      },
+    ];
+
+    const sample: LanguageSample = {
+      id: `drive-speed-${country.id}`,
+      text: `Does traffic in ${country.name} drive on the left or right?`,
+      translation: drivingNote,
+      kind: 'sign',
+      tellIds: [],
+      structuralClue: drivingNote,
+    };
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      section: 'driving-side',
+      kind: 'driving-speed',
+      skillId,
+      languageId: country.id,
+      countryId: country.id,
+      country,
+      groupName: `Driving Side · ${focusSpec.name}`,
+      fluencyThresholdMs: DRIVING_SIDE_FLUENCY_THRESHOLD_MS,
+      sample,
+      drivingPrompt: {
+        focusId: this.activeDrivingFocus,
+        focusLabel: focusSpec.name,
+        drillKind: 'driving-speed',
+        targetCountry: country,
+        promptTitle: `Does traffic in ${country.name} drive on the left or right?`,
+        promptDescription: `${country.subregion} (${country.region}) · Domain ${country.tld} · Coverage: ${country.coverageTier.toUpperCase()}`,
+        suggestedRegionPreset,
+      },
+      assisted: false,
+      isFollowUp,
+      options,
+      startedAtMs: this.now(),
+    };
+  }
+
+  private getDrivingMapRegionConfig(
+    focusId: DrivingSideFocusId,
+    targetCountry: PlayableCountry
+  ): {
+    mapRegionLabel: string;
+    suggestedRegionPreset: MapRegionPresetId;
+    poolCountries: PlayableCountry[];
+    expectedCountries: PlayableCountry[];
+    uncoveredNotes: string[];
+  } {
+    let effectiveFocus:
+      | 'europe'
+      | 'southern-eastern-africa'
+      | 'south-se-asia'
+      | 'oceania'
+      | 'americas-caribbean';
+
+    if (
+      focusId === 'europe' ||
+      focusId === 'southern-eastern-africa' ||
+      focusId === 'south-se-asia' ||
+      focusId === 'oceania' ||
+      focusId === 'americas-caribbean'
+    ) {
+      effectiveFocus = focusId;
+    } else {
+      // Infer from targetCountry when focusId is 'world' or 'tricky-borders'
+      if (targetCountry.region === 'Europe') {
+        effectiveFocus = 'europe';
+      } else if (targetCountry.region === 'Africa') {
+        effectiveFocus = 'southern-eastern-africa';
+      } else if (targetCountry.region === 'Oceania') {
+        effectiveFocus = 'oceania';
+      } else if (targetCountry.region === 'Americas') {
+        effectiveFocus = 'americas-caribbean';
+      } else {
+        effectiveFocus = 'south-se-asia';
+      }
+    }
+
+    switch (effectiveFocus) {
+      case 'europe': {
+        const poolCountries = PLAYABLE_COUNTRIES.filter(
+          (c) => c.region === 'Europe'
+        );
+        const expectedCountries = poolCountries.filter(
+          (c) => c.coverageTier !== 'none' && c.drivingSide === 'left'
+        );
+        return {
+          mapRegionLabel: 'Europe',
+          suggestedRegionPreset: 'europe',
+          poolCountries,
+          expectedCountries,
+          uncoveredNotes: [
+            'Gibraltar (GI): UK territory on the Iberian Peninsula that switched to right-hand traffic in 1929 to match Spain.',
+          ],
+        };
+      }
+      case 'southern-eastern-africa': {
+        const poolCountries = PLAYABLE_COUNTRIES.filter(
+          (c) =>
+            c.subregion === 'Southern Africa' || c.subregion === 'Eastern Africa'
+        );
+        const expectedCountries = poolCountries.filter(
+          (c) => c.coverageTier !== 'none' && c.drivingSide === 'left'
+        );
+        const uncoveredLeft = poolCountries.filter(
+          (c) => c.coverageTier === 'none' && c.drivingSide === 'left'
+        );
+        return {
+          mapRegionLabel: 'Southern & Eastern Africa',
+          suggestedRegionPreset: 'southern-eastern-africa',
+          poolCountries,
+          expectedCountries,
+          uncoveredNotes: [
+            ...uncoveredLeft.map(
+              (c) =>
+                `${c.name} (Left, None coverage): ${c.drivingNote ?? c.coverageNote}`
+            ),
+            'Rwanda (RW), Madagascar (MG) & Réunion (RE): Covered Eastern African countries/territories that drive on the RIGHT.',
+          ],
+        };
+      }
+      case 'south-se-asia': {
+        const poolCountries = PLAYABLE_COUNTRIES.filter(
+          (c) =>
+            c.subregion === 'South Asia' || c.subregion === 'Southeast Asia'
+        );
+        const expectedCountries = poolCountries.filter(
+          (c) => c.coverageTier !== 'none' && c.drivingSide === 'left'
+        );
+        const uncoveredLeft = poolCountries.filter(
+          (c) => c.coverageTier === 'none' && c.drivingSide === 'left'
+        );
+        return {
+          mapRegionLabel: 'South & SE Asia',
+          suggestedRegionPreset: 'south-se-asia',
+          poolCountries,
+          expectedCountries,
+          uncoveredNotes: [
+            ...uncoveredLeft.map(
+              (c) =>
+                `${c.name} (Left, None coverage): ${c.drivingNote ?? c.coverageNote}`
+            ),
+            'Cambodia (KH), Laos (LA), Vietnam (VN) & Philippines (PH): Covered Southeast Asian nations that drive on the RIGHT.',
+          ],
+        };
+      }
+      case 'oceania': {
+        const poolCountries = PLAYABLE_COUNTRIES.filter(
+          (c) => c.region === 'Oceania'
+        );
+        const expectedCountries = poolCountries.filter(
+          (c) => c.coverageTier !== 'none' && c.drivingSide === 'left'
+        );
+        return {
+          mapRegionLabel: 'Oceania',
+          suggestedRegionPreset: 'oceania',
+          poolCountries,
+          expectedCountries,
+          uncoveredNotes: [
+            'Guam (GU), Northern Mariana Islands (MP) & American Samoa (AS): U.S. Pacific territories in Oceania that drive on the RIGHT.',
+          ],
+        };
+      }
+      case 'americas-caribbean': {
+        const poolCountries = PLAYABLE_COUNTRIES.filter(
+          (c) => c.region === 'Americas'
+        );
+        const expectedCountries = poolCountries.filter(
+          (c) => c.coverageTier !== 'none' && c.drivingSide === 'left'
+        );
+        const uncoveredLeft = poolCountries.filter(
+          (c) => c.coverageTier === 'none' && c.drivingSide === 'left'
+        );
+        return {
+          mapRegionLabel: 'Americas & Caribbean',
+          suggestedRegionPreset: 'americas',
+          poolCountries,
+          expectedCountries,
+          uncoveredNotes: [
+            ...uncoveredLeft.map(
+              (c) =>
+                `${c.name} (Left, None coverage): ${c.drivingNote ?? c.coverageNote}`
+            ),
+            'Puerto Rico (PR) & Curaçao (CW): Covered Caribbean territories that drive on the RIGHT.',
+          ],
+        };
+      }
+    }
+  }
+
+  private buildDrivingMapTrial(
+    country: PlayableCountry,
+    isFollowUp: boolean
+  ): PracticeTrial {
+    const skillId = `drive:${country.id}`;
+    const focusSpec = DRIVING_SIDE_FOCUS_MAP[this.activeDrivingFocus];
+    const mapConfig = this.getDrivingMapRegionConfig(
+      this.activeDrivingFocus,
+      country
+    );
+
+    const expectedCountryIds = mapConfig.expectedCountries.map((c) => c.id);
+    const promptTitle = `Click every left-driving covered country in ${mapConfig.mapRegionLabel}`;
+    const promptDescription = `Select all ${expectedCountryIds.length} Playable Countries and territories in ${mapConfig.mapRegionLabel} that have Official or Limited Street View coverage and drive on the LEFT.`;
+
+    const sample: LanguageSample = {
+      id: `drive-map-${mapConfig.mapRegionLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      text: promptTitle,
+      translation: promptDescription,
+      kind: 'sign',
+      tellIds: [],
+      structuralClue:
+        country.drivingNote ??
+        `Left-driving covered countries in ${mapConfig.mapRegionLabel}: ${mapConfig.expectedCountries
+          .map((c) => c.name)
+          .join(', ')}.`,
+    };
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      section: 'driving-side',
+      kind: 'driving-map',
+      skillId,
+      languageId: country.id,
+      countryId: country.id,
+      country,
+      groupName: `Driving Side · ${focusSpec.name} · Regional Map Drill`,
+      fluencyThresholdMs: MAP_BRIDGE_FLUENCY_THRESHOLD_MS,
+      sample,
+      drivingPrompt: {
+        focusId: this.activeDrivingFocus,
+        focusLabel: focusSpec.name,
+        drillKind: 'driving-map',
+        targetCountry: country,
+        promptTitle,
+        promptDescription,
+        suggestedRegionPreset: mapConfig.suggestedRegionPreset,
+        mapRegionLabel: mapConfig.mapRegionLabel,
+        mapTargetSide: 'left',
+        regionPoolCountries: mapConfig.poolCountries,
+        expectedCountryIds,
+        uncoveredCountryNotes: mapConfig.uncoveredNotes,
+      },
+      assisted: false,
+      isFollowUp,
+      options: [],
+      startedAtMs: this.now(),
+    };
+  }
+
+  private buildDrivingNarrowingTrial(
+    country: PlayableCountry,
+    isFollowUp: boolean
+  ): PracticeTrial {
+    // Ensure targetCountry for multi-clue narrowing is a covered Candidate Country
+    let targetCountry = country;
+    if (targetCountry.coverageTier === 'none') {
+      const coveredInFocus = getCountriesForDrivingSideFocus(
+        this.activeDrivingFocus
+      ).filter((c) => c.coverageTier !== 'none');
+      if (coveredInFocus.length > 0) {
+        targetCountry = coveredInFocus[0];
+        this.sessionLastPresentedAt.set(
+          `drive:${targetCountry.id}`,
+          this.sessionTrialCounter
+        );
+      }
+    }
+
+    const skillId = `drive:${targetCountry.id}`;
+    const focusSpec = DRIVING_SIDE_FOCUS_MAP[this.activeDrivingFocus];
+    const sideLabel =
+      targetCountry.drivingSide === 'left'
+        ? 'Left-hand traffic'
+        : 'Right-hand traffic';
+
+    // Determine whether to pair driving side with a Sign Text language sample or with a Script + Region clue
+    const nonEnglishSignLangIds = targetCountry.signLanguages.filter(
+      (id) => Boolean(LANGUAGE_MAP[id])
+    );
+    const useSignSampleClue =
+      nonEnglishSignLangIds.length > 0 &&
+      (targetCountry.region !== 'Africa' || this.sessionTrialCounter % 2 === 0);
+
+    let narrowingFilter: DrivingSideNarrowingFilter;
+    let promptTitle: string;
+    let promptDescription: string;
+    let narrowingClueSummary: string;
+    let signLanguage: LanguageSpec | undefined;
+    let signSample: LanguageSample | undefined;
+    let matchedTells: TellSpanMatch[] = [];
+
+    if (useSignSampleClue) {
+      const chosenLangId = nonEnglishSignLangIds[0];
+      signLanguage = LANGUAGE_MAP[chosenLangId];
+      const signCandidates = signLanguage.samples.filter(
+        (s) => s.kind === 'sign'
+      );
+      signSample =
+        signCandidates.length > 0
+          ? signCandidates[this.sessionTrialCounter % signCandidates.length]
+          : signLanguage.samples[0];
+      matchedTells = findTellMatchesInSample(signSample, signLanguage);
+
+      narrowingFilter = {
+        drivingSide: targetCountry.drivingSide,
+        languageId: signLanguage.id,
+      };
+      promptTitle = `${sideLabel} + Sign Text sample (${signLanguage.name}) → Select the Candidate Countries`;
+      promptDescription = `Combine ${sideLabel.toLowerCase()} with the ${signLanguage.name} (${signLanguage.script}) Sign Text clue below and select every matching Street View-covered Playable Country.`;
+      narrowingClueSummary = `${sideLabel} + ${signLanguage.name} Sign Text ("${signSample.text}")`;
+    } else {
+      const scripts = getCountryScripts(targetCountry);
+      const primaryScript = scripts[0] ?? 'Latin';
+      narrowingFilter = {
+        drivingSide: targetCountry.drivingSide,
+        region: targetCountry.region,
+        script: primaryScript,
+      };
+      promptTitle = `${sideLabel} + ${primaryScript} script in ${targetCountry.region} → Select the Candidate Countries`;
+      promptDescription = `Combine ${sideLabel.toLowerCase()} with ${primaryScript} script road signage in ${targetCountry.region} and select every matching Street View-covered Playable Country.`;
+      narrowingClueSummary = `${sideLabel} + ${primaryScript} script in ${targetCountry.region}`;
+    }
+
+    const narrowingResult =
+      computeDrivingSideNarrowingCandidates(narrowingFilter);
+    const expectedCountryIds = narrowingResult.candidateCountryIds;
+    const suggestedRegionPreset = inferBestRegionPresetForCountries(
+      narrowingResult.candidateCountries.length > 0
+        ? narrowingResult.candidateCountries
+        : [targetCountry]
+    );
+
+    const sample: LanguageSample = signSample ?? {
+      id: `drive-narrow-${targetCountry.id}-${this.sessionTrialCounter}`,
+      text: promptTitle,
+      translation: `Candidate Countries: ${narrowingResult.candidateCountries
+        .map((c) => c.name)
+        .join(', ')}`,
+      kind: 'sign',
+      tellIds: [],
+      structuralClue:
+        targetCountry.drivingNote ??
+        `${narrowingClueSummary} narrows to: ${narrowingResult.candidateCountries
+          .map((c) => c.name)
+          .join(', ')}.`,
+    };
+
+    const regionPoolCountries = PLAYABLE_COUNTRIES.filter(
+      (c) => c.region === targetCountry.region
+    );
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      section: 'driving-side',
+      kind: 'driving-narrowing',
+      skillId,
+      languageId: signLanguage?.id ?? targetCountry.id,
+      countryId: targetCountry.id,
+      country: targetCountry,
+      groupName: `Driving Side · ${focusSpec.name} · Multi-Clue Narrowing`,
+      fluencyThresholdMs: MAP_BRIDGE_FLUENCY_THRESHOLD_MS,
+      sample,
+      drivingPrompt: {
+        focusId: this.activeDrivingFocus,
+        focusLabel: focusSpec.name,
+        drillKind: 'driving-narrowing',
+        targetCountry,
+        promptTitle,
+        promptDescription,
+        suggestedRegionPreset,
+        mapRegionLabel: targetCountry.region,
+        mapTargetSide: targetCountry.drivingSide,
+        regionPoolCountries,
+        expectedCountryIds,
+        narrowingFilter,
+        narrowingClueSummary,
+        signLanguage,
+        signSample,
+        matchedTells,
+        uncoveredCountryNotes: narrowingResult.uncoveredCountryNotes,
+      },
+      assisted: false,
+      isFollowUp,
+      options: [],
+      startedAtMs: this.now(),
+    };
+  }
+
+  private selectNextDrivingCountryByArts(
+    pool: PlayableCountry[]
+  ): PlayableCountry {
+    const state = this.store.getState();
+
+    const scored = pool.map((country, index) => {
+      const skillId = `drive:${country.id}`;
+      const lastSessionTrial = this.sessionLastPresentedAt.get(skillId);
+      const trialsSinceLastSeen =
+        lastSessionTrial !== undefined
+          ? this.sessionTrialCounter - lastSessionTrial
+          : 999;
+
+      const record = state.skills[skillId];
+      const outgoingConfusions = Object.values(
+        state.confusionMatrix[skillId] ?? {}
+      ).reduce((sum, count) => sum + count, 0);
+      let incomingConfusions = 0;
+      for (const row of Object.values(state.confusionMatrix)) {
+        incomingConfusions += row[skillId] ?? 0;
+      }
+      const totalConfusions = outgoingConfusions + incomingConfusions;
+      const confusionBoost = Math.min(6.0, totalConfusions * 0.75);
+
+      let priority: number;
+      if (trialsSinceLastSeen <= ARTS_SPACING_DELAY) {
+        // Blocked by spacing delay D = 2
+        priority = trialsSinceLastSeen - ARTS_SPACING_DELAY - 10;
+      } else if (!record || record.attempts.length === 0) {
+        // Unseen skill: introduce in focus order (which prioritizes tricky left-driving countries and regional borders)
+        priority = 2.0 - index * 0.01 + confusionBoost;
+      } else {
+        const lastAttempt = record.attempts[record.attempts.length - 1];
+        priority = computeArtsPriority({
+          trialsSinceLastSeen,
+          lastCorrect: lastAttempt.correct,
+          lastAssisted: lastAttempt.assisted,
+          lastResponseTimeMs: lastAttempt.responseTimeMs,
+          fluencyThresholdMs: DRIVING_SIDE_FLUENCY_THRESHOLD_MS,
+          mastery: record.mastery,
+          confusionBoost,
+        });
+      }
+
+      return { country, priority, trialsSinceLastSeen };
+    });
+
+    scored.sort((a, b) => {
+      if (Math.abs(b.priority - a.priority) > 1e-6) {
+        return b.priority - a.priority;
+      }
+      return b.trialsSinceLastSeen - a.trialsSinceLastSeen;
+    });
+
+    return scored[0].country;
+  }
+
+  private collectDrivingBorderContrastNotes(
+    targetCountry: PlayableCountry,
+    contextCountries?: PlayableCountry[]
+  ): DrivingSideBorderContrastNote[] {
+    const notes: DrivingSideBorderContrastNote[] = [];
+    const seen = new Set<string>([targetCountry.id]);
+
+    const oppositeSide: DrivingSide =
+      targetCountry.drivingSide === 'left' ? 'right' : 'left';
+
+    const pool = contextCountries ?? PLAYABLE_COUNTRIES;
+    // 1. Countries in the same subregion with the opposite driving side
+    const sameSubregionOpposite = pool.filter(
+      (c) =>
+        !seen.has(c.id) &&
+        c.subregion === targetCountry.subregion &&
+        c.drivingSide === oppositeSide
+    );
+    // 2. Countries in the same region with the opposite driving side
+    const sameRegionOpposite = pool.filter(
+      (c) =>
+        !seen.has(c.id) &&
+        c.region === targetCountry.region &&
+        c.subregion !== targetCountry.subregion &&
+        c.drivingSide === oppositeSide
+    );
+    // 3. Same-side neighbors in the same subregion
+    const sameSubregionSameSide = pool.filter(
+      (c) =>
+        !seen.has(c.id) &&
+        c.subregion === targetCountry.subregion &&
+        c.drivingSide === targetCountry.drivingSide
+    );
+
+    for (const c of [
+      ...sameSubregionOpposite,
+      ...sameRegionOpposite,
+      ...sameSubregionSameSide,
+    ]) {
+      if (notes.length >= 5) break;
+      if (!seen.has(c.id)) {
+        seen.add(c.id);
+        notes.push(toDrivingBorderContrastNote(c));
+      }
+    }
+
+    return notes;
+  }
+
+  private toUnifiedDrivingLanguageFeedback(
+    trial: PracticeTrial,
+    drv: DrivingSideTrialFeedback
+  ): LanguageTrialFeedback {
+    return {
+      correct: drv.correct,
+      assisted: drv.assisted,
+      skillId: drv.skillId,
+      languageId: drv.countryId,
+      languageName: drv.countryName,
+      nativeName: `${drv.drivingSide.toUpperCase()}-Hand Traffic`,
+      chosenOptionId: drv.chosenOptionId,
+      chosenLanguageName: drv.chosenLabel,
+      responseTimeMs: drv.responseTimeMs,
+      fluencyTargetMs: drv.fluencyTargetMs,
+      isFluentSpeed: drv.isFluentSpeed,
+      previousMastery: drv.previousMastery,
+      newMastery: drv.newMastery,
+      sample: trial.sample,
+      translation: drv.drivingNote,
+      matchedTells: trial.drivingPrompt?.matchedTells ?? [],
+      structuralClue: drv.drivingNote,
+      gestaltNote: drv.drivingNote,
+      contrastNote: drv.drivingNote,
+      candidateCountries:
+        drv.country.coverageTier !== 'none' ? [drv.country] : [],
+      uncoveredCountryNotes: drv.uncoveredCountryNotes,
+      mapEvaluation: drv.mapEvaluation,
+      countryId: drv.countryId,
+      country: drv.country,
+      coverageTier: drv.country.coverageTier,
+      coverageNote: drv.country.coverageNote,
+      mapHighlightedCountryIds: drv.mapHighlightedCountryIds,
+      drivingSide: drv.drivingSide,
+      drivingNote: drv.drivingNote,
+      borderContrastNotes: drv.borderContrastNotes,
+      drivingFeedback: drv,
     };
   }
 }

@@ -5,6 +5,9 @@ import { LANGUAGES_CYRILLIC_MED_AFRICA } from './languages-cyrillic-med-africa.t
 import type {
   CoverageFocusId,
   CoverageFocusSpec,
+  DrivingSide,
+  DrivingSideFocusId,
+  DrivingSideFocusSpec,
   LanguageGroupId,
   LanguageGroupSelectionId,
   LanguageGroupSpec,
@@ -13,6 +16,7 @@ import type {
   PlayableCountry,
   SectionId,
   TellSpanMatch,
+  WorldRegion,
 } from './types.ts';
 
 export * from './types.ts';
@@ -187,9 +191,9 @@ export function getAllSkillIdsForSection(section: SectionId): string[] {
     case 'languages':
       return LANGUAGES.map((lang) => `lang:${lang.id}`);
     case 'driving-side':
-      return PLAYABLE_COUNTRIES.filter((c) => c.coverageTier !== 'none').map(
-        (c) => `drive:${c.id}`
-      );
+      return PLAYABLE_COUNTRIES.filter(
+        (c) => c.coverageTier !== 'none' || c.id === 'gy' || c.id === 'sr'
+      ).map((c) => `drive:${c.id}`);
     case 'coverage':
       return PLAYABLE_COUNTRIES.map((c) => `cov:${c.id}`);
     case 'domains-currencies': {
@@ -326,4 +330,313 @@ export function getCountriesForCoverageFocus(focusId: CoverageFocusId): Playable
     if (pa !== pb) return pa - pb;
     return a.name.localeCompare(b.name);
   });
+}
+
+export const DRIVING_SIDE_FOCUS_OPTIONS: DrivingSideFocusSpec[] = [
+  {
+    id: 'world',
+    name: 'World & Tricky Borders',
+    shortName: 'World',
+    mapRegionLabel: 'World',
+    description:
+      'All covered Playable Countries plus key South American border exceptions (Guyana & Suriname), weighted toward tricky left/right borders and island territories.',
+    highlightExamples: [
+      'Kenya & Uganda (Left) vs Rwanda (Right)',
+      'Thailand (Left) vs Cambodia & Laos (Right)',
+      'Hong Kong & Macau (Left) vs Taiwan (Right)',
+      'Ghana, Nigeria & Senegal (Right)',
+    ],
+  },
+  {
+    id: 'tricky-borders',
+    name: 'Tricky Left/Right Borders & Exceptions',
+    shortName: 'Tricky Borders',
+    mapRegionLabel: 'World',
+    description:
+      'High-yield regional borders and island switches: Thailand vs Cambodia/Laos, Hong Kong/Macau vs Taiwan, Guyana vs neighbors, Kenya/Uganda vs Rwanda, Ghana/Nigeria/Senegal, and U.S. Virgin Islands vs Puerto Rico.',
+    highlightExamples: [
+      'Thailand (L) vs Cambodia/Laos (R)',
+      'HK/Macau (L) vs Taiwan (R)',
+      'Guyana/Suriname (L) vs Brazil/Venezuela (R)',
+      'Kenya/Uganda (L) vs Rwanda/Ghana/Nigeria (R)',
+    ],
+  },
+  {
+    id: 'europe',
+    name: 'Europe',
+    shortName: 'Europe',
+    mapRegionLabel: 'Europe',
+    description:
+      'Master all 7 left-driving covered European countries and territories (UK, Ireland, Isle of Man, Jersey, Guernsey, Malta, Cyprus) vs right-driving continental Europe and Gibraltar.',
+    highlightExamples: [
+      'UK & Ireland (Left)',
+      'Isle of Man, Jersey & Guernsey (Left)',
+      'Malta & Cyprus (Left)',
+      'Gibraltar (Right — 1929 switch)',
+    ],
+  },
+  {
+    id: 'southern-eastern-africa',
+    name: 'Southern & Eastern Africa',
+    shortName: 'S & E Africa',
+    mapRegionLabel: 'Southern & Eastern Africa',
+    description:
+      'Click all 6 covered left-driving countries in Southern & Eastern Africa (South Africa, Botswana, Eswatini, Lesotho, Kenya, Uganda) while ruling out right-driving Rwanda, Madagascar, Réunion, and West Africa (Ghana, Nigeria, Senegal).',
+    highlightExamples: [
+      'Kenya & Uganda (Left)',
+      'Rwanda (Right)',
+      'South Africa, Botswana, Eswatini, Lesotho (Left)',
+      'Ghana, Nigeria & Senegal (Right)',
+    ],
+  },
+  {
+    id: 'south-se-asia',
+    name: 'South & SE Asia',
+    shortName: 'S & SE Asia',
+    mapRegionLabel: 'South & SE Asia',
+    description:
+      'Separate left-driving South Asia (India, Bangladesh, Sri Lanka, Bhutan, Pakistan) and Maritime/Mainland SE Asia (Thailand, Malaysia, Singapore, Indonesia) from right-driving Cambodia, Laos, Vietnam, and the Philippines.',
+    highlightExamples: [
+      'Thailand, Malaysia, Singapore, Indonesia (Left)',
+      'Cambodia, Laos, Vietnam, Philippines (Right)',
+      'India, Bangladesh, Sri Lanka, Bhutan (Left)',
+      'Japan, Hong Kong, Macau (Left) vs Taiwan (Right)',
+    ],
+  },
+  {
+    id: 'oceania',
+    name: 'Oceania',
+    shortName: 'Oceania',
+    mapRegionLabel: 'Oceania',
+    description:
+      'Contrast left-driving Australasia (Australia, New Zealand, Christmas Island) against right-driving U.S. Pacific territories (Guam, Northern Mariana Islands, American Samoa).',
+    highlightExamples: [
+      'Australia & New Zealand (Left)',
+      'Christmas Island (Left)',
+      'Guam & Northern Mariana Islands (Right)',
+      'American Samoa (Right)',
+    ],
+  },
+  {
+    id: 'americas-caribbean',
+    name: 'Americas & Caribbean',
+    shortName: 'Americas & Caribbean',
+    mapRegionLabel: 'Americas & Caribbean',
+    description:
+      'Identify left-driving covered Atlantic/Caribbean territories (U.S. Virgin Islands, Bermuda) and South American border exceptions (Guyana, Suriname) against right-driving Puerto Rico, Curaçao, and mainland Americas.',
+    highlightExamples: [
+      'U.S. Virgin Islands (Left)',
+      'Bermuda (Left)',
+      'Guyana & Suriname (Left — None coverage)',
+      'Puerto Rico & Curaçao (Right)',
+    ],
+  },
+];
+
+export const DRIVING_SIDE_FOCUS_MAP: Record<
+  DrivingSideFocusId,
+  DrivingSideFocusSpec
+> = Object.fromEntries(DRIVING_SIDE_FOCUS_OPTIONS.map((f) => [f.id, f])) as Record<
+  DrivingSideFocusId,
+  DrivingSideFocusSpec
+>;
+
+export const PRIORITY_TRICKY_DRIVING_COUNTRY_IDS: string[] = [
+  'ke',
+  'rw',
+  'ug',
+  'gh',
+  'ng',
+  'sn',
+  'th',
+  'kh',
+  'la',
+  'id',
+  'my',
+  'sg',
+  'ph',
+  'vn',
+  'hk',
+  'mo',
+  'tw',
+  'jp',
+  'kr',
+  'bd',
+  'bt',
+  'in',
+  'lk',
+  'pk',
+  'gy',
+  'sr',
+  'vi',
+  'bm',
+  'pr',
+  'cw',
+  'mt',
+  'cy',
+  'gi',
+  'gb',
+  'ie',
+  'im',
+  'je',
+  'gg',
+  'za',
+  'bw',
+  'sz',
+  'ls',
+  're',
+  'mg',
+  'au',
+  'nz',
+  'cx',
+  'gu',
+  'mp',
+  'as',
+];
+
+export function getCountriesForDrivingSideFocus(
+  focusId: DrivingSideFocusId
+): PlayableCountry[] {
+  const allEligible = PLAYABLE_COUNTRIES.filter(
+    (c) => c.coverageTier !== 'none' || c.id === 'gy' || c.id === 'sr'
+  );
+
+  let base: PlayableCountry[];
+  switch (focusId) {
+    case 'world':
+      base = allEligible;
+      break;
+    case 'tricky-borders': {
+      const trickySet = new Set(PRIORITY_TRICKY_DRIVING_COUNTRY_IDS);
+      base = allEligible.filter((c) => trickySet.has(c.id));
+      break;
+    }
+    case 'europe':
+      base = allEligible.filter((c) => c.region === 'Europe');
+      break;
+    case 'southern-eastern-africa':
+      base = allEligible.filter((c) => c.region === 'Africa');
+      break;
+    case 'south-se-asia':
+      base = allEligible.filter(
+        (c) =>
+          c.subregion === 'South Asia' ||
+          c.subregion === 'Southeast Asia' ||
+          c.subregion === 'East Asia'
+      );
+      break;
+    case 'oceania':
+      base = allEligible.filter((c) => c.region === 'Oceania');
+      break;
+    case 'americas-caribbean':
+      base = allEligible.filter((c) => c.region === 'Americas');
+      break;
+  }
+
+  const priorityIndex = new Map<string, number>(
+    PRIORITY_TRICKY_DRIVING_COUNTRY_IDS.map((id, idx) => [id, idx])
+  );
+
+  return [...base].sort((a, b) => {
+    const pa =
+      priorityIndex.get(a.id) ?? (a.drivingSide === 'left' ? 60 : 100);
+    const pb =
+      priorityIndex.get(b.id) ?? (b.drivingSide === 'left' ? 60 : 100);
+    if (pa !== pb) return pa - pb;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+export function getCountryScripts(country: PlayableCountry): string[] {
+  const scripts = new Set<string>();
+  for (const langId of country.signLanguages) {
+    if (langId === 'en') {
+      scripts.add('Latin');
+    } else {
+      const spec = LANGUAGE_MAP[langId];
+      if (spec) {
+        scripts.add(spec.script);
+        if (spec.script.toLowerCase().includes('latin')) {
+          scripts.add('Latin');
+        }
+        if (spec.script.toLowerCase().includes('cyrillic')) {
+          scripts.add('Cyrillic');
+        }
+      }
+    }
+  }
+  return Array.from(scripts);
+}
+
+export interface DrivingSideNarrowingFilter {
+  drivingSide: DrivingSide;
+  region?: WorldRegion;
+  subregion?: string;
+  script?: string;
+  languageId?: string;
+}
+
+export interface DrivingSideNarrowingResult {
+  candidateCountries: PlayableCountry[];
+  candidateCountryIds: string[];
+  uncoveredMatchingCountries: PlayableCountry[];
+  uncoveredCountryNotes: string[];
+}
+
+export function computeDrivingSideNarrowingCandidates(
+  filter: DrivingSideNarrowingFilter
+): DrivingSideNarrowingResult {
+  const matchingAll = PLAYABLE_COUNTRIES.filter((country) => {
+    if (country.drivingSide !== filter.drivingSide) {
+      return false;
+    }
+    if (
+      filter.region &&
+      country.region.toLowerCase() !== filter.region.toLowerCase()
+    ) {
+      return false;
+    }
+    if (
+      filter.subregion &&
+      country.subregion.toLowerCase() !== filter.subregion.toLowerCase()
+    ) {
+      return false;
+    }
+    if (
+      filter.languageId &&
+      !country.signLanguages.includes(filter.languageId)
+    ) {
+      return false;
+    }
+    if (filter.script) {
+      const targetScript = filter.script.trim().toLowerCase();
+      const countryScripts = getCountryScripts(country).map((s) =>
+        s.toLowerCase()
+      );
+      const matchesScript = countryScripts.some(
+        (s) => s === targetScript || s.includes(targetScript)
+      );
+      if (!matchesScript) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const candidateCountries = matchingAll.filter(
+    (c) => c.coverageTier !== 'none'
+  );
+  const uncoveredMatchingCountries = matchingAll.filter(
+    (c) => c.coverageTier === 'none'
+  );
+
+  return {
+    candidateCountries,
+    candidateCountryIds: candidateCountries.map((c) => c.id),
+    uncoveredMatchingCountries,
+    uncoveredCountryNotes: uncoveredMatchingCountries.map(
+      (c) =>
+        `${c.name} (${c.drivingSide.toUpperCase()}, None coverage): ${c.drivingNote ?? c.coverageNote}`
+    ),
+  };
 }

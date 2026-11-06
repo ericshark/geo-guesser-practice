@@ -4,11 +4,11 @@
 
 **Blocked by:** 03: Interactive World Map & Stage 3 Language → Candidate Countries Bridge
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] **Driving Side** Section offers regional map drills ("Click every left-driving covered country in Europe / Southern & Eastern Africa / South & SE Asia / Oceania / Americas & Caribbean") using the interactive world map and territory pills.
-- [ ] Rapid Left/Right drills quiz individual **Playable Countries** (with extra weight on tricky left-driving countries and regional borders like Thailand vs Cambodia/Laos, Hong Kong/Macau vs Taiwan, Guyana vs neighbors, Kenya/Uganda/Rwanda, Ghana/Nigeria/Senegal) using ARTS response-time fluency (`<2500ms` ceiling).
-- [ ] Multi-clue narrowing drills combine driving side with a second clue (e.g., "Left-hand traffic + Latin script in Africa" or "Left-hand traffic + Sign Text sample") and ask the learner to select the matching **Candidate Countries**.
-- [ ] Built-in "How to Spot Driving Side Without Cars" guide presents clear vector diagrams and explanations for road-edge line colors, sign orientation, roundabout circulation direction, parked vehicles, and camera-car hood/shadow clues.
-- [ ] **Driving Side** skills report live **Mastery States** to the **Dashboard** and support **Guided Breakdown**.
-- [ ] Tests at the `PracticeEngine` seam verify **Driving Side** map drills, Left/Right speed scoring, and multi-clue **Candidate Countries** intersection.
+- [x] **Driving Side** Section offers regional map drills ("Click every left-driving covered country in Europe / Southern & Eastern Africa / South & SE Asia / Oceania / Americas & Caribbean") using the interactive world map and territory pills.
+- [x] Rapid Left/Right drills quiz individual **Playable Countries** (with extra weight on tricky left-driving countries and regional borders like Thailand vs Cambodia/Laos, Hong Kong/Macau vs Taiwan, Guyana vs neighbors, Kenya/Uganda/Rwanda, Ghana/Nigeria/Senegal) using ARTS response-time fluency (`<2500ms` ceiling).
+- [x] Multi-clue narrowing drills combine driving side with a second clue (e.g., "Left-hand traffic + Latin script in Africa" or "Left-hand traffic + Sign Text sample") and ask the learner to select the matching **Candidate Countries**.
+- [x] Built-in "How to Spot Driving Side Without Cars" guide presents clear vector diagrams and explanations for road-edge line colors, sign orientation, roundabout circulation direction, parked vehicles, and camera-car hood/shadow clues.
+- [x] **Driving Side** skills report live **Mastery States** to the **Dashboard** and support **Guided Breakdown**.
+- [x] Tests at the `PracticeEngine` seam verify **Driving Side** map drills, Left/Right speed scoring, and multi-clue **Candidate Countries** intersection.

@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { CoverageSectionView } from './components/CoverageSectionView.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { DataManagementModal } from './components/DataManagementModal.tsx';
+import { DrivingSideSectionView } from './components/DrivingSideSectionView.tsx';
 import { LanguagesSectionView } from './components/LanguagesSectionView.tsx';
 import type {
   CoverageFocusId,
+  DrivingSideFocusId,
   LanguageGroupSelectionId,
   SectionId,
 } from './data/index.ts';
@@ -18,7 +20,7 @@ import {
 } from './storage/index.ts';
 import './style.css';
 
-type ActiveRoute = 'dashboard' | 'languages' | 'coverage';
+type ActiveRoute = 'dashboard' | 'languages' | 'driving-side' | 'coverage';
 
 export function App({ customStore }: { customStore?: ProgressStore }) {
   const store = useMemo(
@@ -33,6 +35,8 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
   const [route, setRoute] = useState<ActiveRoute>('dashboard');
   const [initialLanguageGroup, setInitialLanguageGroup] =
     useState<LanguageGroupSelectionId | null>(null);
+  const [initialDrivingFocus, setInitialDrivingFocus] =
+    useState<DrivingSideFocusId | null>(null);
   const [initialCoverageFocus, setInitialCoverageFocus] =
     useState<CoverageFocusId | null>(null);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
@@ -49,9 +53,11 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
     document.title =
       route === 'languages'
         ? 'Languages Practice | GeoGuessr Practice'
-        : route === 'coverage'
-          ? 'Coverage Practice | GeoGuessr Practice'
-          : 'Dashboard | GeoGuessr Practice';
+        : route === 'driving-side'
+          ? 'Driving Side Practice | GeoGuessr Practice'
+          : route === 'coverage'
+            ? 'Coverage Practice | GeoGuessr Practice'
+            : 'Dashboard | GeoGuessr Practice';
   }, [route]);
 
   const sectionBreakdowns: Record<SectionId, SectionMasteryBreakdown> = useMemo(
@@ -68,6 +74,11 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
   const handleOpenLanguages = (group?: LanguageGroupSelectionId) => {
     setInitialLanguageGroup(group ?? null);
     setRoute('languages');
+  };
+
+  const handleOpenDrivingSide = (focus?: DrivingSideFocusId) => {
+    setInitialDrivingFocus(focus ?? null);
+    setRoute('driving-side');
   };
 
   const handleOpenCoverage = (focus?: CoverageFocusId) => {
@@ -88,6 +99,7 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
               type="button"
               onClick={() => {
                 setInitialLanguageGroup(null);
+                setInitialDrivingFocus(null);
                 setInitialCoverageFocus(null);
                 setRoute('dashboard');
               }}
@@ -110,6 +122,7 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
                     aria-current={route === 'dashboard' ? 'page' : undefined}
                     onClick={() => {
                       setInitialLanguageGroup(null);
+                      setInitialDrivingFocus(null);
                       setInitialCoverageFocus(null);
                       setRoute('dashboard');
                     }}
@@ -134,6 +147,20 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
                     }`}
                   >
                     Languages
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    aria-current={route === 'driving-side' ? 'page' : undefined}
+                    onClick={() => handleOpenDrivingSide()}
+                    className={`rounded-lg px-3 py-1.5 text-[0.875rem] font-medium transition ${
+                      route === 'driving-side'
+                        ? 'bg-zinc-500/12 font-semibold'
+                        : 'text-[var(--text-secondary)] hover:bg-zinc-500/10'
+                    }`}
+                  >
+                    Driving Side
                   </button>
                 </li>
                 <li>
@@ -178,8 +205,19 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
             progress={progress}
             sectionBreakdowns={sectionBreakdowns}
             onOpenLanguagesSection={handleOpenLanguages}
+            onOpenDrivingSideSection={handleOpenDrivingSide}
             onOpenCoverageSection={handleOpenCoverage}
             onOpenDataModal={() => setIsDataModalOpen(true)}
+          />
+        ) : route === 'driving-side' ? (
+          <DrivingSideSectionView
+            engine={engine}
+            progress={progress}
+            initialFocus={initialDrivingFocus}
+            onBackToDashboard={() => {
+              setInitialDrivingFocus(null);
+              setRoute('dashboard');
+            }}
           />
         ) : route === 'coverage' ? (
           <CoverageSectionView

@@ -25,6 +25,24 @@ export interface CoverageFocusSpec {
   highlightExamples: string[];
 }
 
+export type DrivingSideFocusId =
+  | 'world'
+  | 'tricky-borders'
+  | 'europe'
+  | 'southern-eastern-africa'
+  | 'south-se-asia'
+  | 'oceania'
+  | 'americas-caribbean';
+
+export interface DrivingSideFocusSpec {
+  id: DrivingSideFocusId;
+  name: string;
+  shortName: string;
+  mapRegionLabel: string;
+  description: string;
+  highlightExamples: string[];
+}
+
 export type LanguageGroupId =
   | 'east-asian'
   | 'southeast-asian'

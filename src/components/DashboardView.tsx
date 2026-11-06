@@ -2,6 +2,7 @@ import React from 'react';
 import {
   LANGUAGE_GROUPS,
   type CoverageFocusId,
+  type DrivingSideFocusId,
   type LanguageGroupSelectionId,
   type SectionId,
 } from '../data/index.ts';
@@ -16,6 +17,7 @@ interface DashboardViewProps {
   progress: ProgressData;
   sectionBreakdowns: Record<SectionId, SectionMasteryBreakdown>;
   onOpenLanguagesSection: (initialGroup?: LanguageGroupSelectionId) => void;
+  onOpenDrivingSideSection: (initialFocus?: DrivingSideFocusId) => void;
   onOpenCoverageSection: (initialFocus?: CoverageFocusId) => void;
   onOpenDataModal: () => void;
 }
@@ -41,7 +43,7 @@ const SECTION_CARDS: Array<{
     subtitle:
       'Build instant spatial recall of left- vs right-driving Playable Countries and road-edge geometry clues.',
     clueExamples: ['Kenya (Left)', 'Rwanda (Right)', 'Thailand (Left)', 'Laos (Right)'],
-    availableInV1Slice: false,
+    availableInV1Slice: true,
   },
   {
     id: 'coverage',
@@ -65,6 +67,7 @@ export function DashboardView({
   progress,
   sectionBreakdowns,
   onOpenLanguagesSection,
+  onOpenDrivingSideSection,
   onOpenCoverageSection,
   onOpenDataModal,
 }: DashboardViewProps) {
@@ -278,6 +281,8 @@ export function DashboardView({
                       onClick={() => {
                         if (skill.section === 'coverage') {
                           onOpenCoverageSection('world');
+                        } else if (skill.section === 'driving-side') {
+                          onOpenDrivingSideSection('world');
                         } else {
                           onOpenLanguagesSection(
                             skill.groupId ?? 'smart-weakest'
@@ -480,6 +485,8 @@ export function DashboardView({
                       onClick={() => {
                         if (card.id === 'coverage') {
                           onOpenCoverageSection();
+                        } else if (card.id === 'driving-side') {
+                          onOpenDrivingSideSection();
                         } else {
                           onOpenLanguagesSection();
                         }
