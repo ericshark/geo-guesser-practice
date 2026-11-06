@@ -161,15 +161,18 @@ describe('UI & Highlighting Verification', () => {
   });
 
   it('renders offline vector WorldMapView with all Playable Countries, 8 regional zoom presets, small territory pill markers, and Stage 3 Bridge feedback', async () => {
-    // Verify every PlayableCountry has offline vector map geometry
+    // Every Playable Country has an atlas polygon or a territory control
     expect(Object.keys(COUNTRY_MAP_GEOMETRIES)).toHaveLength(
       PLAYABLE_COUNTRIES.length
     );
     for (const country of PLAYABLE_COUNTRIES) {
       const geom = COUNTRY_MAP_GEOMETRIES[country.id];
       expect(geom).toBeDefined();
-      expect(geom.svgPath).toContain('M');
-      expect(geom.svgPath).toContain('Z');
+      if (geom.svgPath) {
+        expect(geom.svgPath).toMatch(/^M.*Z$/);
+      } else {
+        expect(country.isTerritory).toBe(true);
+      }
     }
 
     // Verify all 8 required regional zoom presets
@@ -223,6 +226,11 @@ describe('UI & Highlighting Verification', () => {
     expect(mapHtml).toContain('Christmas Island');
     expect(mapHtml).toContain('Curaçao');
     expect(mapHtml).toContain('Faroe Islands');
+    for (const country of PLAYABLE_COUNTRIES) {
+      if (!COUNTRY_MAP_GEOMETRIES[country.id].svgPath) {
+        expect(mapHtml).toContain(`data-territory-pill="${country.id}"`);
+      }
+    }
 
     // Verify Stage 3 Bridge trial and emerald/amber/rose evaluation feedback in LanguagesSectionView
     const store = new ProgressStore(createInMemoryProgressAdapter());

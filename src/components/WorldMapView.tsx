@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import {
   COUNTRY_MAP_GEOMETRIES,
   MAP_REGION_PRESETS,
@@ -9,6 +9,7 @@ import {
   type MapRegionPresetId,
   type PlayableCountry,
 } from '../data/index.ts';
+import { ATLAS_CONTEXT_PATH } from '../data/atlasPaths.ts';
 import type { MapSelectionEvaluation } from '../engine/practiceEngine.ts';
 
 export interface WorldMapViewProps {
@@ -38,6 +39,11 @@ type CountryVisualStatus =
   | 'driving-left'
   | 'driving-right';
 
+// The Oceania preset extends east past the date line to include American Samoa.
+function atlasWrapOffset(x: number, preset: MapRegionPresetId): number {
+  return preset === 'oceania' && x < 60 ? 1000 : 0;
+}
+
 interface EnrichedCountryGeometry extends CountryMapGeometry {
   country: PlayableCountry;
 }
@@ -56,6 +62,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   readOnly = false,
   ariaLabel = 'Interactive world map of Playable Countries',
 }) => {
+  const contextPathId = useId();
   const [internalPreset, setInternalPreset] = useState<MapRegionPresetId>(initialRegionPreset);
   const [hoveredCountryId, setHoveredCountryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -64,14 +71,8 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   const activePreset = MAP_REGION_PRESET_MAP[activePresetId] ?? MAP_REGION_PRESET_MAP.world;
 
   const viewBoxNumbers = useMemo<[number, number, number, number]>(() => {
-    const parts = activePreset.viewBox
-      .trim()
-      .split(/\s+/)
-      .map((n) => Number.parseFloat(n));
-    if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
-      return [parts[0], parts[1], parts[2], parts[3]];
-    }
-    return [45, 40, 915, 410];
+    const [x, y, width, height] = activePreset.viewBox.split(' ').map(Number);
+    return [x, y, width, height];
   }, [activePreset.viewBox]);
 
   const handlePresetChange = (presetId: MapRegionPresetId) => {
@@ -182,7 +183,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   }, []);
 
   const territoryGeometries = useMemo(
-    () => allGeometries.filter((g) => g.country.isTerritory),
+    () => allGeometries.filter((g) => g.country.isTerritory || !g.svgPath),
     [allGeometries]
   );
 
@@ -195,7 +196,8 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
     const padX = vw * 0.08;
     const padY = vh * 0.08;
     return territoryGeometries.filter((g) => {
-      const [cx, cy] = g.centerSvg;
+      const [x, cy] = g.centerSvg;
+      const cx = x + atlasWrapOffset(x, activePresetId);
       return (
         cx >= vx - padX &&
         cx <= vx + vw + padX &&
@@ -220,7 +222,8 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
       if (activePresetId === 'world') return true;
       const geom = COUNTRY_MAP_GEOMETRIES[country.id];
       if (!geom) return true;
-      const [cx, cy] = geom.centerSvg;
+      const [x, cy] = geom.centerSvg;
+      const cx = x + atlasWrapOffset(x, activePresetId);
       return (
         cx >= vx - vw * 0.05 &&
         cx <= vx + vw * 1.05 &&
@@ -354,38 +357,46 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
       </div>
 
       {/* Vector World Map SVG Canvas */}
-      <div className="relative bg-[#EAF2F8] dark:bg-[#0B0C0E] select-none">
+      <div className="relative bg-[#DFEDF3] dark:bg-[#172630] select-none">
         <svg
           viewBox={activePreset.viewBox}
           role="img"
           aria-label={ariaLabel}
-          className="w-full h-[300px] sm:h-[360px] block transition-all duration-300 ease-out"
+          className={`block w-full ${activePresetId === 'world' ? 'h-auto' : 'h-[235px] sm:h-[360px]'}`}
           data-active-preset={activePresetId}
         >
           <title>{ariaLabel}</title>
           <desc>
-            Offline vector world map showing all 145 Playable Countries and GeoGuessr territory pill
-            markers. Use the regional zoom presets or click countries and territory pills to toggle
-            selection.
+            Offline atlas of Playable Countries. Use the regional zoom presets or select countries
+            and territories on the map or with the country buttons.
           </desc>
 
-          {/* Subtle latitude/longitude graticule lines */}
-          <g className="stroke-slate-300/50 dark:stroke-slate-800/70" strokeWidth={baseStroke * 0.6}>
-            <line x1={0} y1={250} x2={1000} y2={250} strokeDasharray="3 3" />
-            <line x1={0} y1={139} x2={1000} y2={139} strokeDasharray="2 4" />
-            <line x1={0} y1={361} x2={1000} y2={361} strokeDasharray="2 4" />
-            <line x1={500} y1={0} x2={500} y2={500} strokeDasharray="2 4" />
-          </g>
+          <path
+            id={contextPathId}
+            d={ATLAS_CONTEXT_PATH}
+            data-layer="atlas-context"
+            fillRule="evenodd"
+            vectorEffect="non-scaling-stroke"
+            strokeWidth={0.5}
+            className="pointer-events-none fill-[#E0E4D9] stroke-[#AEB9B1] dark:fill-[#293332] dark:stroke-[#495A5B]"
+          />
+
+          {activePresetId === 'oceania' && (
+            <use href={`#${contextPathId}`} x={1000} aria-hidden="true" className="pointer-events-none" />
+          )}
 
           {/* Country Polygons */}
           <g data-layer="country-polygons">
             {allGeometries.map((geom) => {
+              if (!geom.svgPath) return null;
+              const x = geom.centerSvg[0];
+              const offset = atlasWrapOffset(x, activePresetId);
               const status = getCountryStatus(geom.countryId);
               const isHovered = hoveredCountryId === geom.countryId;
 
               let fillClass =
-                'fill-[#F8FAFC] dark:fill-[#1B1F27] hover:fill-sky-100 dark:hover:fill-[#263040]';
-              let strokeClass = 'stroke-slate-400 dark:stroke-[#384152]';
+                'fill-[#F3F2E6] dark:fill-[#35403D] hover:fill-[#D2E7EA] dark:hover:fill-[#485C60]';
+              let strokeClass = 'stroke-[#9AAEAA] dark:stroke-[#647777]';
 
               if (status === 'selected') {
                 fillClass = 'fill-[#0071E3] dark:fill-[#0A84FF]';
@@ -411,6 +422,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                 <path
                   key={geom.countryId}
                   d={geom.svgPath}
+                  transform={offset ? `translate(${offset} 0)` : undefined}
                   data-country-id={geom.countryId}
                   data-status={status}
                   onClick={() => {
@@ -423,9 +435,9 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                   className={`transition-colors duration-150 ${
                     readOnly ? 'cursor-default' : 'cursor-pointer'
                   } ${fillClass} ${strokeClass}`}
-                  strokeWidth={
-                    isHovered || status !== 'default' ? baseStroke * 1.45 : baseStroke
-                  }
+                  fillRule="evenodd"
+                  vectorEffect="non-scaling-stroke"
+                  strokeWidth={isHovered || status !== 'default' ? 1 : 0.55}
                   strokeLinejoin="round"
                 >
                   <title>{`${geom.country.name} (${geom.countryId.toUpperCase()})${
@@ -467,7 +479,8 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                 const geom = COUNTRY_MAP_GEOMETRIES[id];
                 const country = PLAYABLE_COUNTRY_MAP[id];
                 if (!geom || country?.isTerritory || status === 'default') return null;
-                const [cx, cy] = geom.centerSvg;
+                const [x, cy] = geom.centerSvg;
+                const cx = x + atlasWrapOffset(x, activePresetId);
                 const r = Math.max(3.2, 6.5 * zoomRatio);
                 const fontSize = Math.max(2.6, 5.2 * zoomRatio);
                 const badgeFill =
@@ -505,9 +518,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
 
           {/* Small Territory & Microstate Pill Markers on the SVG Map */}
           <g data-layer="territory-pills">
-            {visibleTerritories.map((geom) => {
+            {activePresetId !== 'world' && visibleTerritories.map((geom) => {
               const status = getCountryStatus(geom.countryId);
-              const [cx, cy] = geom.centerSvg;
+              const [x, cy] = geom.centerSvg;
+              const cx = x + atlasWrapOffset(x, activePresetId);
               const [dx, dy] = geom.pillOffsetSvg;
               const px = cx + dx;
               const py = cy + dy;
@@ -636,7 +650,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             </div>
           ) : (
             <span className="text-slate-500 dark:text-[#9AA0AA]">
-              Click any country polygon or microstate pill marker on the map to toggle selection.
+              Select a country on the map or use the country buttons below.
             </span>
           )}
           <span className="text-[11px] font-mono text-slate-500 dark:text-[#9AA0AA]">
@@ -655,7 +669,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             Small Territories &amp; Microstates ({visibleTerritories.length})
           </span>
           <span className="text-[11px] text-slate-500 dark:text-[#9AA0AA]">
-            Clickable pill markers for small islands &amp; microstates
+            Select small islands and microstates
           </span>
         </div>
         <div
