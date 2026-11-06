@@ -2,6 +2,7 @@ import {
   findTellMatchesInSample,
   getCandidateCountriesForLanguage,
   getLanguagesForGroupSelection,
+  inferBestRegionPresetForCountries,
   LANGUAGE_GROUP_MAP,
   LANGUAGE_MAP,
   LANGUAGES,
@@ -10,6 +11,7 @@ import {
   type LanguageGroupSelectionId,
   type LanguageSample,
   type LanguageSpec,
+  type MapRegionPresetId,
   type MasteryState,
   type PlayableCountry,
   type SectionId,
@@ -20,6 +22,7 @@ import type { ProgressData, ProgressStore, SkillAttempt } from '../storage/index
 
 export const LANGUAGE_FLUENCY_THRESHOLD_MS = 3500;
 export const DRIVING_SIDE_FLUENCY_THRESHOLD_MS = 2500;
+export const MAP_BRIDGE_FLUENCY_THRESHOLD_MS = 5000;
 export const ARTS_SPACING_DELAY = 2;
 export const GUIDED_BREAKDOWN_FOLLOW_UP_COUNT = 2;
 
@@ -252,7 +255,7 @@ export function getWeakestLearningSkills(
   return summaries.slice(0, limit);
 }
 
-export type LanguageDrillMode = 'mixed' | 'samples' | 'tells';
+export type LanguageDrillMode = 'mixed' | 'samples' | 'tells' | 'bridge';
 
 export interface LanguageSessionConfig {
   groupId: LanguageGroupSelectionId;
@@ -295,7 +298,34 @@ export interface TrialOption {
 export type LanguageTrialKind =
   | 'sample-recognition'
   | 'tell-recognition'
-  | 'triggered-contrast';
+  | 'triggered-contrast'
+  | 'country-bridge';
+
+export interface CountryBridgePrompt {
+  languageId: string;
+  languageName: string;
+  nativeName: string;
+  script: string;
+  expectedCountryIds: string[];
+  expectedCount: number;
+  suggestedRegionPreset: MapRegionPresetId;
+  matchedTells: TellSpanMatch[];
+  uncoveredCountryNotes: string[];
+}
+
+export interface MapSelectionEvaluation {
+  selectedCountryIds: string[];
+  expectedCountryIds: string[];
+  correctCountryIds: string[]; // emerald
+  missedCountryIds: string[]; // amber
+  incorrectCountryIds: string[]; // rose (including uncovered countries)
+  incorrectUncoveredCountryIds: string[]; // subset of incorrectCountryIds with coverageTier === 'none'
+  correctCountries: PlayableCountry[];
+  missedCountries: PlayableCountry[];
+  incorrectCountries: PlayableCountry[];
+  uncoveredCountryNotes: string[];
+  perfect: boolean;
+}
 
 export interface TriggeredContrastSide {
   skillId: string;
@@ -364,8 +394,9 @@ export interface PracticeTrial {
     script: string;
   };
   triggeredContrast?: TriggeredContrastCard;
+  bridgePrompt?: CountryBridgePrompt;
   assisted?: boolean;
-   isFollowUp?: boolean;
+  isFollowUp?: boolean;
   options: TrialOption[];
   startedAtMs: number;
 }
@@ -401,6 +432,8 @@ export interface LanguageTrialFeedback {
   candidateCountries: PlayableCountry[];
   uncoveredCountryNotes: string[];
   triggeredContrastQueued?: boolean;
+  bridgeQueued?: boolean;
+  mapEvaluation?: MapSelectionEvaluation;
 }
 
 export interface SessionStats {
@@ -424,6 +457,44 @@ interface PendingContrastItem {
   confusionCount: number;
 }
 
+export function evaluateCountryBridgeSelection(
+  language: LanguageSpec,
+  selectedCountryIds: string[]
+): MapSelectionEvaluation {
+  const candidateCountries = getCandidateCountriesForLanguage(language);
+  const expectedSet = new Set(candidateCountries.map((c) => c.id));
+  const uniqueSelected = Array.from(
+    new Set(selectedCountryIds.map((id) => id.trim().toLowerCase()).filter(Boolean))
+  );
+  const selectedSet = new Set(uniqueSelected);
+
+  const correctCountryIds = uniqueSelected.filter((id) => expectedSet.has(id));
+  const missedCountryIds = Array.from(expectedSet).filter((id) => !selectedSet.has(id));
+  const incorrectCountryIds = uniqueSelected.filter((id) => !expectedSet.has(id));
+  const incorrectUncoveredCountryIds = incorrectCountryIds.filter(
+    (id) => PLAYABLE_COUNTRY_MAP[id]?.coverageTier === 'none'
+  );
+
+  const toCountries = (ids: string[]): PlayableCountry[] =>
+    ids
+      .map((id) => PLAYABLE_COUNTRY_MAP[id])
+      .filter((c): c is PlayableCountry => Boolean(c));
+
+  return {
+    selectedCountryIds: uniqueSelected,
+    expectedCountryIds: Array.from(expectedSet),
+    correctCountryIds,
+    missedCountryIds,
+    incorrectCountryIds,
+    incorrectUncoveredCountryIds,
+    correctCountries: toCountries(correctCountryIds),
+    missedCountries: toCountries(missedCountryIds),
+    incorrectCountries: toCountries(incorrectCountryIds),
+    uncoveredCountryNotes: language.uncoveredCountryNotes,
+    perfect: missedCountryIds.length === 0 && incorrectCountryIds.length === 0,
+  };
+}
+
 export class PracticeEngine {
   private store: ProgressStore;
   private now: () => number;
@@ -445,6 +516,8 @@ export class PracticeEngine {
 
   private followUpQueue: FollowUpQueueItem[] = [];
   private pendingContrastQueue: PendingContrastItem[] = [];
+  private pendingBridgeQueue: string[] = []; // languageIds queued for Stage 3 Language -> Country Bridge
+  private sessionBridgedLangs = new Set<string>();
   private pairConfusionsSinceTrigger = new Map<string, number>();
   private sessionPairBoostBySkill = new Map<string, number>();
 
@@ -477,6 +550,8 @@ export class PracticeEngine {
     this.lastTellIdByLang.clear();
     this.followUpQueue = [];
     this.pendingContrastQueue = [];
+    this.pendingBridgeQueue = [];
+    this.sessionBridgedLangs.clear();
     this.pairConfusionsSinceTrigger.clear();
     this.sessionPairBoostBySkill.clear();
     this.currentTrial = null;
@@ -719,7 +794,21 @@ export class PracticeEngine {
       return this.currentTrial;
     }
 
-    // 2. Check if any Guided Breakdown follow-up item has satisfied the D = 2 spacing delay
+    // 2. Check if a Stage 3 Language -> Country Bridge trial is pending
+    if (
+      (this.drillMode === 'mixed' || this.drillMode === 'bridge') &&
+      this.pendingBridgeQueue.length > 0
+    ) {
+      const langId = this.pendingBridgeQueue.shift()!;
+      const langSpec = LANGUAGE_MAP[langId];
+      if (langSpec) {
+        this.sessionBridgedLangs.add(langId);
+        this.currentTrial = this.buildCountryBridgeTrial(langSpec);
+        return this.currentTrial;
+      }
+    }
+
+    // 3. Check if any Guided Breakdown follow-up item has satisfied the D = 2 spacing delay
     const eligibleFollowUpIdx = this.followUpQueue.findIndex((item) => {
       const lastSeen = this.sessionLastPresentedAt.get(item.skillId);
       const trialsSinceLastSeen =
@@ -743,6 +832,24 @@ export class PracticeEngine {
 
     const skillId = `lang:${chosenLanguage.id}`;
     this.sessionLastPresentedAt.set(skillId, this.sessionTrialCounter);
+
+    const state = this.store.getState();
+    const currentMastery = state.skills[skillId]?.mastery ?? 'unseen';
+    const isFluentOrRecognized =
+      currentMastery === 'recognized' || currentMastery === 'mastered';
+
+    if (
+      this.drillMode === 'bridge' ||
+      (this.drillMode === 'mixed' &&
+        !isFollowUp &&
+        isFluentOrRecognized &&
+        (!this.sessionBridgedLangs.has(chosenLanguage.id) ||
+          this.sessionTrialCounter % 3 === 0))
+    ) {
+      this.sessionBridgedLangs.add(chosenLanguage.id);
+      this.currentTrial = this.buildCountryBridgeTrial(chosenLanguage);
+      return this.currentTrial;
+    }
 
     const trialKind: LanguageTrialKind =
       this.drillMode === 'tells'
@@ -794,6 +901,14 @@ export class PracticeEngine {
     const trial = this.currentTrial;
     if (!trial) {
       throw new Error('No active trial to submit an answer for.');
+    }
+
+    if (trial.kind === 'country-bridge') {
+      const parsedIds = chosenOptionId
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return this.submitCountryBridgeAnswer(parsedIds, explicitResponseTimeMs);
     }
 
     const responseTimeMs =
@@ -872,6 +987,20 @@ export class PracticeEngine {
       now: new Date(this.now()),
     });
 
+    // When a language newly reaches recognized or mastered (or is practiced in recognized/mastered without having done a bridge trial yet in this session), queue Stage 3 Language -> Country Bridge
+    let bridgeQueued = false;
+    if (
+      (this.drillMode === 'mixed' || this.drillMode === 'bridge') &&
+      correct &&
+      !assisted &&
+      (newMastery === 'recognized' || newMastery === 'mastered') &&
+      !this.sessionBridgedLangs.has(targetLanguage.id) &&
+      !this.pendingBridgeQueue.includes(targetLanguage.id)
+    ) {
+      this.pendingBridgeQueue.push(targetLanguage.id);
+      bridgeQueued = true;
+    }
+
     // Check if this error triggers a Stage 2 Contrast Card for (trial.skillId, chosenOptionId)
     let triggeredContrastQueued = false;
     if (
@@ -938,10 +1067,154 @@ export class PracticeEngine {
       candidateCountries,
       uncoveredCountryNotes: targetLanguage.uncoveredCountryNotes,
       triggeredContrastQueued,
+      bridgeQueued,
     };
 
     this.lastFeedback = feedback;
     return feedback;
+  }
+
+  /**
+   * Validates a multi-country map selection for a Stage 3 Language -> Country Bridge trial.
+   * Marks correct selections (emerald), missed Candidate Countries (amber), and incorrect clicks
+   * including uncovered countries (rose), while returning informational footnotes for uncovered countries.
+   */
+  async submitCountryBridgeAnswer(
+    selectedCountryIds: string[],
+    explicitResponseTimeMs?: number
+  ): Promise<LanguageTrialFeedback> {
+    const trial = this.currentTrial;
+    if (!trial || trial.kind !== 'country-bridge') {
+      throw new Error('No active Stage 3 Country Bridge trial to submit map selections for.');
+    }
+
+    const responseTimeMs =
+      explicitResponseTimeMs ?? Math.max(100, this.now() - trial.startedAtMs);
+    const targetLanguage = LANGUAGE_MAP[trial.languageId];
+    const mapEvaluation = evaluateCountryBridgeSelection(
+      targetLanguage,
+      selectedCountryIds
+    );
+    const correct = mapEvaluation.perfect;
+    const assisted = this.currentTrialAssisted || Boolean(trial.assisted);
+
+    const state = this.store.getState();
+    const existingRecord = state.skills[trial.skillId];
+    const previousMastery: MasteryState = existingRecord?.mastery ?? 'unseen';
+    const existingAttempts: SkillAttempt[] = existingRecord?.attempts ?? [];
+
+    const simulatedAttempts: SkillAttempt[] = [
+      ...existingAttempts,
+      {
+        timestamp: this.now(),
+        correct,
+        responseTimeMs,
+        assisted,
+        chosenSkillId: `map:${mapEvaluation.selectedCountryIds.join(',')}`,
+        sampleId: trial.sample.id,
+      },
+    ];
+
+    const newMastery = calculateMasteryState(
+      simulatedAttempts,
+      trial.fluencyThresholdMs
+    );
+
+    const prevTotalRt =
+      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
+    this.sessionStats.trialsCompleted += 1;
+    if (correct) {
+      this.sessionStats.correctCount += 1;
+      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
+        this.sessionStats.fluentCount += 1;
+      }
+    }
+    this.sessionStats.averageResponseTimeMs = Math.round(
+      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    );
+
+    await this.store.recordAttempt({
+      section: 'languages',
+      skillId: trial.skillId,
+      chosenSkillId: correct
+        ? trial.skillId
+        : `map:${mapEvaluation.selectedCountryIds.join(',') || 'none'}`,
+      sampleId: trial.sample.id,
+      correct,
+      responseTimeMs,
+      assisted,
+      mastery: newMastery,
+      trialIndex: this.sessionTrialCounter,
+      now: new Date(this.now()),
+    });
+
+    const matchedTells = findTellMatchesInSample(trial.sample, targetLanguage);
+    const candidateCountries = getCandidateCountriesForLanguage(targetLanguage);
+
+    const feedback: LanguageTrialFeedback = {
+      correct,
+      assisted,
+      skillId: trial.skillId,
+      languageId: targetLanguage.id,
+      languageName: targetLanguage.name,
+      nativeName: targetLanguage.nativeName,
+      chosenOptionId: mapEvaluation.selectedCountryIds.join(','),
+      chosenLanguageName:
+        mapEvaluation.selectedCountryIds.length > 0
+          ? mapEvaluation.selectedCountryIds
+              .map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id)
+              .join(', ')
+          : 'None selected',
+      responseTimeMs,
+      fluencyTargetMs: trial.fluencyThresholdMs,
+      isFluentSpeed: correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      previousMastery,
+      newMastery,
+      sample: trial.sample,
+      translation: trial.sample.translation,
+      matchedTells,
+      structuralClue: trial.sample.structuralClue,
+      gestaltNote: targetLanguage.gestaltNote,
+      contrastNote: targetLanguage.contrastNote,
+      candidateCountries,
+      uncoveredCountryNotes: targetLanguage.uncoveredCountryNotes,
+      mapEvaluation,
+    };
+
+    this.lastFeedback = feedback;
+    return feedback;
+  }
+
+  private buildCountryBridgeTrial(language: LanguageSpec): PracticeTrial {
+    const skillId = `lang:${language.id}`;
+    const sample = this.selectFreshSample(language);
+    const candidateCountries = getCandidateCountriesForLanguage(language);
+    const suggestedRegionPreset = inferBestRegionPresetForCountries(candidateCountries);
+    const groupSpec = LANGUAGE_GROUP_MAP[language.groupId];
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      kind: 'country-bridge',
+      skillId,
+      languageId: language.id,
+      groupName: `${groupSpec.name} · Stage 3 Language → Country Bridge`,
+      fluencyThresholdMs: MAP_BRIDGE_FLUENCY_THRESHOLD_MS,
+      sample,
+      bridgePrompt: {
+        languageId: language.id,
+        languageName: language.name,
+        nativeName: language.nativeName,
+        script: language.script,
+        expectedCountryIds: candidateCountries.map((c) => c.id),
+        expectedCount: candidateCountries.length,
+        suggestedRegionPreset,
+        matchedTells: findTellMatchesInSample(sample, language),
+        uncoveredCountryNotes: language.uncoveredCountryNotes,
+      },
+      assisted: false,
+      options: [],
+      startedAtMs: this.now(),
+    };
   }
 
   private buildTriggeredContrastTrial(pending: PendingContrastItem): PracticeTrial {

@@ -3,6 +3,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { App } from './main.tsx';
 import { LanguagesSectionView } from './components/LanguagesSectionView.tsx';
+import { WorldMapView } from './components/WorldMapView.tsx';
+import {
+  COUNTRY_MAP_GEOMETRIES,
+  MAP_REGION_PRESETS,
+  PLAYABLE_COUNTRIES,
+  PLAYABLE_COUNTRY_MAP,
+} from './data/index.ts';
 import { PracticeEngine } from './engine/practiceEngine.ts';
 import { ProgressStore, createInMemoryProgressAdapter } from './storage/index.ts';
 import { buildHighlightedTextSegments } from './utils/highlightSpans.ts';
@@ -149,5 +156,101 @@ describe('UI & Highlighting Verification', () => {
     expect(dashboardHtml).toContain('Weakest Learning Skills');
     expect(dashboardHtml).toContain('Top Confusion Pairs');
     expect(dashboardHtml).toContain('mistaken for');
+  });
+
+  it('renders offline vector WorldMapView with all Playable Countries, 8 regional zoom presets, small territory pill markers, and Stage 3 Bridge feedback', async () => {
+    // Verify every PlayableCountry has offline vector map geometry
+    expect(Object.keys(COUNTRY_MAP_GEOMETRIES)).toHaveLength(
+      PLAYABLE_COUNTRIES.length
+    );
+    for (const country of PLAYABLE_COUNTRIES) {
+      const geom = COUNTRY_MAP_GEOMETRIES[country.id];
+      expect(geom).toBeDefined();
+      expect(geom.svgPath).toContain('M');
+      expect(geom.svgPath).toContain('Z');
+    }
+
+    // Verify all 8 required regional zoom presets
+    expect(MAP_REGION_PRESETS.map((p) => p.label)).toEqual([
+      'World',
+      'Europe',
+      'Asia',
+      'South & SE Asia',
+      'Africa',
+      'Southern & Eastern Africa',
+      'Oceania',
+      'Americas',
+    ]);
+
+    // Verify all required small GeoGuessr territories and microstates have pill markers
+    const requiredTerritories = [
+      'hk',
+      'mo',
+      'sg',
+      'mt',
+      'cy',
+      'lu',
+      'ad',
+      'mc',
+      'sm',
+      'fo',
+      'gi',
+      'bm',
+      'vi',
+      'pr',
+      'cw',
+      're',
+      'cx',
+    ];
+    for (const code of requiredTerritories) {
+      const country = PLAYABLE_COUNTRY_MAP[code];
+      const geom = COUNTRY_MAP_GEOMETRIES[code];
+      expect(country?.isTerritory).toBe(true);
+      expect(geom?.centerSvg).toHaveLength(2);
+      expect(geom?.pillOffsetSvg).toHaveLength(2);
+    }
+
+    const mapHtml = renderToStaticMarkup(
+      React.createElement(WorldMapView, {
+        selectedCountryIds: ['sg'],
+        onToggleCountry: () => {},
+      })
+    );
+    expect(mapHtml).toContain('South &amp; SE Asia');
+    expect(mapHtml).toContain('Southern &amp; Eastern Africa');
+    expect(mapHtml).toContain('Christmas Island');
+    expect(mapHtml).toContain('Curaçao');
+    expect(mapHtml).toContain('Faroe Islands');
+
+    // Verify Stage 3 Bridge trial and emerald/amber/rose evaluation feedback in LanguagesSectionView
+    const store = new ProgressStore(createInMemoryProgressAdapter());
+    await store.load();
+    const engine = new PracticeEngine(store);
+    engine.startLanguageSession({
+      groupId: 'east-asian',
+      skipPrime: true,
+      drillMode: 'bridge',
+    });
+
+    const bridgeTrial = engine.getCurrentTrial()!;
+    expect(bridgeTrial.kind).toBe('country-bridge');
+
+    // Submit partial/imperfect answer including an uncovered country ('cn')
+    await engine.submitCountryBridgeAnswer(['sg', 'cn'], 2800);
+
+    const bridgeFeedbackHtml = renderToStaticMarkup(
+      React.createElement(LanguagesSectionView, {
+        engine,
+        progress: store.getState(),
+        initialGroup: 'east-asian',
+        onBackToDashboard: () => {},
+      })
+    );
+
+    expect(bridgeFeedbackHtml).toContain('Stage 3 Map Selection Breakdown');
+    expect(bridgeFeedbackHtml).toContain('Correct Selections');
+    expect(bridgeFeedbackHtml).toContain('Missed Candidate Countries');
+    expect(bridgeFeedbackHtml).toContain('Incorrect Clicks');
+    expect(bridgeFeedbackHtml).toContain('Uncovered in Street View');
   });
 });

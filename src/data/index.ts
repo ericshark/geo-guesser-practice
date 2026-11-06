@@ -14,6 +14,7 @@ import type {
 } from './types.ts';
 
 export * from './types.ts';
+export * from './worldMapGeometry.ts';
 export { PLAYABLE_COUNTRIES };
 
 export const PLAYABLE_COUNTRY_MAP: Record<string, PlayableCountry> = Object.fromEntries(

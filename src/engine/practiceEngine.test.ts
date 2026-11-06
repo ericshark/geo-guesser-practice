@@ -4,9 +4,11 @@ import {
   PracticeEngine,
   calculateMasteryState,
   computeArtsPriority,
+  evaluateCountryBridgeSelection,
   getTopConfusionPairs,
   getWeakestLearningSkills,
 } from './practiceEngine.ts';
+import { LANGUAGE_MAP } from '../data/index.ts';
 
 describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)', () => {
   let store: ProgressStore;
@@ -426,5 +428,96 @@ describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)',
     expect(smartTrial).not.toBeNull();
     expect(smartTrial.skillId).toBe('lang:sk');
     expect(smartTrial.groupName).toContain('Smart Practice');
+  });
+
+  it('interleaves Stage 3 Language -> Country Bridge trials when a language reaches recognized or mastered status and validates multi-country map selections', async () => {
+    // Seed 3 prior unaided correct attempts for German ('lang:de') so the 4th unaided attempt reaches 'recognized' (or 'mastered')
+    for (let i = 1; i <= 3; i++) {
+      await store.recordAttempt({
+        section: 'languages',
+        skillId: 'lang:de',
+        chosenSkillId: 'lang:de',
+        sampleId: `de-seed-${i}`,
+        correct: true,
+        responseTimeMs: 4000, // slower than 3500ms so 4th correct reaches 'recognized'
+        assisted: false,
+        mastery: 'learning',
+        trialIndex: i,
+      });
+    }
+
+    engine.startLanguageSession({
+      groupId: 'germanic',
+      skipPrime: true,
+      drillMode: 'mixed',
+    });
+
+    // Advance until 'lang:de' is presented in Stage 1
+    let trial = engine.getCurrentTrial()!;
+    while (trial.skillId !== 'lang:de') {
+      await engine.submitAnswer(trial.skillId, 1800);
+      trial = engine.nextTrial();
+    }
+    expect(trial.kind).not.toBe('country-bridge');
+
+    // Submit 4th unaided correct answer -> reaches 'recognized' and queues Stage 3 Country Bridge trial
+    const stage1Feedback = await engine.submitAnswer('lang:de', 2200);
+    expect(stage1Feedback.correct).toBe(true);
+    expect(stage1Feedback.newMastery).toBe('recognized');
+    expect(stage1Feedback.bridgeQueued).toBe(true);
+
+    // Next trial interleaved by PracticeEngine must be the Stage 3 Language -> Country Bridge trial for German
+    const bridgeTrial = engine.nextTrial();
+    expect(bridgeTrial.kind).toBe('country-bridge');
+    expect(bridgeTrial.skillId).toBe('lang:de');
+    expect(bridgeTrial.bridgePrompt).toBeDefined();
+    expect(bridgeTrial.bridgePrompt!.languageName).toBe('German');
+    // Expected Candidate Countries for German: de, at, ch, li, lu, be
+    expect(
+      [...bridgeTrial.bridgePrompt!.expectedCountryIds].sort()
+    ).toEqual(['at', 'be', 'ch', 'de', 'li', 'lu']);
+
+    // Submit an imperfect multi-country selection:
+    // - Correct (emerald): de, at, ch
+    // - Missed (amber): be, li, lu
+    // - Incorrect (rose): nl (covered non-candidate) + cn (coverageTier === 'none')
+    const imperfectFeedback = await engine.submitCountryBridgeAnswer(
+      ['de', 'at', 'ch', 'nl', 'cn'],
+      3200
+    );
+    expect(imperfectFeedback.correct).toBe(false);
+    expect(imperfectFeedback.mapEvaluation).toBeDefined();
+    expect(imperfectFeedback.mapEvaluation!.perfect).toBe(false);
+    expect(imperfectFeedback.mapEvaluation!.correctCountryIds.sort()).toEqual([
+      'at',
+      'ch',
+      'de',
+    ]);
+    expect(imperfectFeedback.mapEvaluation!.missedCountryIds.sort()).toEqual([
+      'be',
+      'li',
+      'lu',
+    ]);
+    expect(imperfectFeedback.mapEvaluation!.incorrectCountryIds.sort()).toEqual([
+      'cn',
+      'nl',
+    ]);
+    expect(imperfectFeedback.mapEvaluation!.incorrectUncoveredCountryIds).toEqual([
+      'cn',
+    ]);
+
+    // Verify exact multi-country selection on a Stage 3 Bridge trial (e.g., Simplified Chinese 'zh-hans' -> sg, my, cx, with Mainland China uncovered footnote)
+    const zhHansEval = evaluateCountryBridgeSelection(LANGUAGE_MAP['zh-hans'], [
+      'sg',
+      'my',
+      'cx',
+    ]);
+    expect(zhHansEval.perfect).toBe(true);
+    expect(zhHansEval.correctCountryIds.sort()).toEqual(['cx', 'my', 'sg']);
+    expect(zhHansEval.missedCountryIds).toEqual([]);
+    expect(zhHansEval.incorrectCountryIds).toEqual([]);
+    expect(LANGUAGE_MAP['zh-hans'].uncoveredCountryNotes.join(' ')).toContain(
+      'Mainland China'
+    );
   });
 });

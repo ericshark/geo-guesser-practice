@@ -4,8 +4,10 @@ import {
   LANGUAGE_GROUPS,
   LANGUAGE_MAP,
   LANGUAGES,
+  PLAYABLE_COUNTRY_MAP,
   type LanguageGroupSelectionId,
   type LanguageSample,
+  type MapRegionPresetId,
   type TellSpanMatch,
 } from '../data/index.ts';
 import type {
@@ -19,6 +21,7 @@ import type {
 import type { ProgressData } from '../storage/index.ts';
 import { buildHighlightedTextSegments } from '../utils/highlightSpans.ts';
 import { MasteryBadge } from './MasteryBadge.tsx';
+import { WorldMapView } from './WorldMapView.tsx';
 
 const TELL_HIGHLIGHT_CLASSES = [
   'bg-indigo-500/20 text-indigo-800 dark:text-indigo-200 border-b-2 border-indigo-500 px-1 rounded-xs font-semibold',
@@ -64,6 +67,21 @@ export function LanguagesSectionView({
     engine.getLastFeedback()
   );
   const [elapsedMs, setElapsedMs] = useState<number>(0);
+  const [selectedMapCountryIds, setSelectedMapCountryIds] = useState<string[]>(
+    []
+  );
+  const [mapRegionPreset, setMapRegionPreset] =
+    useState<MapRegionPresetId>('world');
+
+  // Sync map preset & clear map selection when a new trial starts
+  useEffect(() => {
+    setSelectedMapCountryIds([]);
+    if (activeTrial?.kind === 'country-bridge' && activeTrial.bridgePrompt) {
+      setMapRegionPreset(activeTrial.bridgePrompt.suggestedRegionPreset);
+    } else {
+      setMapRegionPreset('world');
+    }
+  }, [activeTrial?.trialNumber, activeTrial?.kind]);
 
   const launchGroupSession = useCallback(
     (
@@ -83,6 +101,7 @@ export function LanguagesSectionView({
       setActiveBreakdown(null);
       setFeedback(null);
       setElapsedMs(0);
+      setSelectedMapCountryIds([]);
     },
     [engine]
   );
@@ -116,6 +135,7 @@ export function LanguagesSectionView({
     setActiveBreakdown(null);
     setFeedback(null);
     setElapsedMs(0);
+    setSelectedMapCountryIds([]);
   }, [engine]);
 
   const handleSkipPrime = useCallback(() => {
@@ -125,6 +145,7 @@ export function LanguagesSectionView({
     setActiveBreakdown(null);
     setFeedback(null);
     setElapsedMs(0);
+    setSelectedMapCountryIds([]);
   }, [engine]);
 
   const handleRequestGuidedBreakdown = useCallback(() => {
@@ -148,12 +169,41 @@ export function LanguagesSectionView({
     [activeTrial, elapsedMs, engine, feedback]
   );
 
+  const handleToggleMapCountry = useCallback(
+    (countryId: string) => {
+      if (feedback) return;
+      setSelectedMapCountryIds((prev) =>
+        prev.includes(countryId)
+          ? prev.filter((id) => id !== countryId)
+          : [...prev, countryId]
+      );
+    },
+    [feedback]
+  );
+
+  const handleSubmitCountryBridge = useCallback(
+    async (overrideIds?: string[]) => {
+      if (!activeTrial || activeTrial.kind !== 'country-bridge' || feedback) {
+        return;
+      }
+      const idsToSubmit = overrideIds ?? selectedMapCountryIds;
+      if (overrideIds) {
+        setSelectedMapCountryIds(overrideIds);
+      }
+      const rt = Math.max(120, elapsedMs || Date.now() - activeTrial.startedAtMs);
+      const result = await engine.submitCountryBridgeAnswer(idsToSubmit, rt);
+      setFeedback(result);
+    },
+    [activeTrial, elapsedMs, engine, feedback, selectedMapCountryIds]
+  );
+
   const handleNextTrial = useCallback(() => {
     const next = engine.nextTrial();
     setActiveTrial(next);
     setActiveBreakdown(null);
     setFeedback(null);
     setElapsedMs(0);
+    setSelectedMapCountryIds([]);
   }, [engine]);
 
   const handleExitToGroupPicker = useCallback(() => {
@@ -162,9 +212,10 @@ export function LanguagesSectionView({
     setActiveTrial(null);
     setActiveBreakdown(null);
     setFeedback(null);
+    setSelectedMapCountryIds([]);
   }, []);
 
-  // Full keyboard navigation: 1..6 for choices, Space or ? for Guided Breakdown, Enter to start/advance, Escape to close overlay or exit
+  // Full keyboard navigation: 1..6 for choices, Space or ? for Guided Breakdown, Enter to start/submit/advance, Escape to close overlay or exit
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -203,7 +254,10 @@ export function LanguagesSectionView({
       }
 
       if (activeTrial && !feedback) {
-        if (e.key === '?' || e.key === ' ') {
+        if (
+          e.key === '?' ||
+          (e.key === ' ' && target?.tagName !== 'BUTTON')
+        ) {
           e.preventDefault();
           handleRequestGuidedBreakdown();
           return;
@@ -211,16 +265,34 @@ export function LanguagesSectionView({
 
         if (e.key === 'Enter' && activeBreakdown) {
           e.preventDefault();
-          void handleSelectOption(activeTrial.skillId);
+          if (activeTrial.kind === 'country-bridge') {
+            void handleSubmitCountryBridge(
+              activeBreakdown.candidateCountries.map((c) => c.id)
+            );
+          } else {
+            void handleSelectOption(activeTrial.skillId);
+          }
           return;
         }
 
-        const num = Number.parseInt(e.key, 10);
-        if (num >= 1 && num <= activeTrial.options.length) {
+        if (
+          e.key === 'Enter' &&
+          activeTrial.kind === 'country-bridge' &&
+          target?.tagName !== 'BUTTON'
+        ) {
           e.preventDefault();
-          const chosen = activeTrial.options[num - 1];
-          if (chosen) {
-            void handleSelectOption(chosen.id);
+          void handleSubmitCountryBridge();
+          return;
+        }
+
+        if (activeTrial.kind !== 'country-bridge') {
+          const num = Number.parseInt(e.key, 10);
+          if (num >= 1 && num <= activeTrial.options.length) {
+            e.preventDefault();
+            const chosen = activeTrial.options[num - 1];
+            if (chosen) {
+              void handleSelectOption(chosen.id);
+            }
           }
         }
         return;
@@ -246,6 +318,7 @@ export function LanguagesSectionView({
     handleRequestGuidedBreakdown,
     handleSelectOption,
     handleStartFromPrime,
+    handleSubmitCountryBridge,
     onBackToDashboard,
     selectedGroup,
     stage0Prime,
@@ -275,8 +348,9 @@ export function LanguagesSectionView({
             <p className="mt-1 text-[0.875rem] text-[var(--text-secondary)]">
               Practice lookalike scripts and languages together using Stage 0{' '}
               <strong>Contrast Cards</strong>, Stage 1{' '}
-              <strong>ARTS Interleaved Speed Drills</strong>, and Stage 2{' '}
-              <strong>Triggered Contrast Cards</strong>.
+              <strong>ARTS Interleaved Speed Drills</strong>, Stage 2{' '}
+              <strong>Triggered Contrast Cards</strong>, and Stage 3{' '}
+              <strong>Language → Candidate Countries Bridge</strong>.
             </p>
           </div>
 
@@ -296,10 +370,13 @@ export function LanguagesSectionView({
               className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3 py-1.5 text-[0.875rem] font-medium"
             >
               <option value="mixed">
-                Mixed: Samples + Tell Recognition
+                Mixed: Samples + Tell Recognition + Country Bridge
               </option>
               <option value="samples">Sentences & Sign Text Only</option>
               <option value="tells">Tell Recognition Micro-Drills Only</option>
+              <option value="bridge">
+                Stage 3 Language → Country Bridge Map Drills
+              </option>
             </select>
           </div>
         </div>
@@ -595,7 +672,7 @@ export function LanguagesSectionView({
     );
   }
 
-  // 3. STAGE 1 ARTS SPEED DRILL & STAGE 2 TRIGGERED CONTRAST CARD
+  // 3. STAGE 1 ARTS SPEED DRILL, STAGE 2 TRIGGERED CONTRAST CARD, & STAGE 3 COUNTRY BRIDGE
   if (!activeTrial) {
     return null;
   }
@@ -610,12 +687,16 @@ export function LanguagesSectionView({
   const currentMastery =
     progress.skills[activeTrial.skillId]?.mastery ?? 'unseen';
 
-  const shouldHighlightPromptTells = Boolean(feedback || activeBreakdown);
+  const shouldHighlightPromptTells = Boolean(
+    feedback || activeBreakdown || activeTrial.kind === 'country-bridge'
+  );
   const promptHighlightMatches = feedback
     ? feedback.matchedTells
     : activeBreakdown
       ? activeBreakdown.matchedTells
-      : [];
+      : activeTrial.bridgePrompt
+        ? activeTrial.bridgePrompt.matchedTells
+        : [];
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
@@ -637,9 +718,11 @@ export function LanguagesSectionView({
               <p className="text-[0.75rem] text-[var(--text-secondary)]">
                 {activeTrial.kind === 'triggered-contrast'
                   ? `Stage 2 Triggered Contrast Card · Trial #${activeTrial.trialNumber}`
-                  : activeTrial.isFollowUp
-                    ? `Guided Breakdown Follow-Up Drill · Trial #${activeTrial.trialNumber}`
-                    : `Stage 1 ARTS Interleaved Speed Drill · Trial #${activeTrial.trialNumber}`}
+                  : activeTrial.kind === 'country-bridge'
+                    ? `Stage 3 Language → Country Bridge · Trial #${activeTrial.trialNumber}`
+                    : activeTrial.isFollowUp
+                      ? `Guided Breakdown Follow-Up Drill · Trial #${activeTrial.trialNumber}`
+                      : `Stage 1 ARTS Interleaved Speed Drill · Trial #${activeTrial.trialNumber}`}
               </p>
             </div>
           </div>
@@ -670,7 +753,7 @@ export function LanguagesSectionView({
               </strong>
             </span>
             <span className="rounded-lg bg-[var(--surface-canvas)] px-2.5 py-1 border border-[var(--border-subtle)]">
-              Fluent (&lt;3.5s):{' '}
+              Fluent:{' '}
               <strong>
                 {sessionStats.fluentCount}/{sessionStats.trialsCompleted}
               </strong>
@@ -717,11 +800,13 @@ export function LanguagesSectionView({
             <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3 py-1 text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
               {activeTrial.kind === 'triggered-contrast'
                 ? '⇄ Stage 2 Triggered Contrast Card'
-                : activeTrial.kind === 'tell-recognition'
-                  ? '◆ Tell Recognition Micro-Question'
-                  : activeTrial.sample.kind === 'sign'
-                    ? '▣ Street / Shop Sign Text'
-                    : '¶ Authentic Sentence Sample'}
+                : activeTrial.kind === 'country-bridge'
+                  ? '🌐 Stage 3 Language → Country Bridge'
+                  : activeTrial.kind === 'tell-recognition'
+                    ? '◆ Tell Recognition Micro-Question'
+                    : activeTrial.sample.kind === 'sign'
+                      ? '▣ Street / Shop Sign Text'
+                      : '¶ Authentic Sentence Sample'}
             </span>
             {activeTrial.isFollowUp && (
               <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-indigo-700 dark:text-indigo-300">
@@ -830,6 +915,107 @@ export function LanguagesSectionView({
               ))}
             </div>
           </div>
+        ) : activeTrial.kind === 'country-bridge' && activeTrial.bridgePrompt ? (
+          <div className="space-y-4" data-testid="country-bridge-prompt">
+            <div className="rounded-xl border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/8 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--brand-accent)]">
+                    Stage 3 Language → Candidate Countries Bridge
+                  </span>
+                  <h2 className="mt-0.5 text-[1.25rem] font-bold">
+                    {activeTrial.bridgePrompt.languageName}{' '}
+                    <span className="font-normal text-[var(--text-secondary)]">
+                      ({activeTrial.bridgePrompt.nativeName} ·{' '}
+                      {activeTrial.bridgePrompt.script})
+                    </span>
+                  </h2>
+                </div>
+              </div>
+              <p className="mt-1.5 text-[0.875rem] text-[var(--text-secondary)]">
+                Click or select all Street View-covered{' '}
+                <strong>Candidate Countries</strong> where{' '}
+                <strong>{activeTrial.bridgePrompt.languageName}</strong> appears
+                on road signs. Exclude countries with{' '}
+                <code>coverageTier === &apos;none&apos;</code>.
+              </p>
+              <div className="mt-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3">
+                <p
+                  lang={activeTrial.languageId}
+                  className="text-[1.125rem] font-medium leading-relaxed"
+                >
+                  <HighlightedSampleText
+                    sample={activeTrial.sample}
+                    matches={promptHighlightMatches}
+                  />
+                </p>
+                <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)] italic">
+                  “{activeTrial.sample.translation}”
+                </p>
+              </div>
+            </div>
+
+            <WorldMapView
+              selectedCountryIds={selectedMapCountryIds}
+              onToggleCountry={handleToggleMapCountry}
+              evaluation={feedback?.mapEvaluation ?? null}
+              activeRegionPreset={mapRegionPreset}
+              onRegionPresetChange={setMapRegionPreset}
+              readOnly={Boolean(feedback)}
+              ariaLabel={`Select Street View Candidate Countries for ${activeTrial.bridgePrompt.languageName}`}
+            />
+
+            {/* Selected Countries Action Bar */}
+            {!feedback && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3.5">
+                <div className="flex flex-wrap items-center gap-1.5 text-[0.8125rem]">
+                  <span className="font-semibold text-[var(--text-secondary)]">
+                    Selected ({selectedMapCountryIds.length}):
+                  </span>
+                  {selectedMapCountryIds.length === 0 ? (
+                    <span className="text-[var(--text-secondary)]">
+                      None yet — click countries or territory pills on the map above
+                    </span>
+                  ) : (
+                    selectedMapCountryIds.map((id) => {
+                      const country = PLAYABLE_COUNTRY_MAP[id];
+                      return (
+                        <button
+                          key={`selected-chip-${id}`}
+                          type="button"
+                          onClick={() => handleToggleMapCountry(id)}
+                          className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-accent)]/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-[var(--brand-accent)] hover:bg-[var(--brand-accent)]/25"
+                        >
+                          <span>{country?.name ?? id.toUpperCase()}</span>
+                          <span aria-hidden="true">×</span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {selectedMapCountryIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMapCountryIds([])}
+                      className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="submit-country-bridge-btn"
+                    onClick={() => void handleSubmitCountryBridge()}
+                    className="rounded-xl bg-[var(--brand-accent)] px-4 py-2 text-[0.875rem] font-semibold text-white hover:opacity-95"
+                  >
+                    Submit Map Selection (Enter) →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         ) : activeTrial.kind === 'tell-recognition' && activeTrial.tellPrompt ? (
           <div className="space-y-3">
             <p className="text-[0.875rem] font-medium text-[var(--text-secondary)]">
@@ -908,10 +1094,20 @@ export function LanguagesSectionView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleSelectOption(activeBreakdown.skillId)}
+                  onClick={() => {
+                    if (activeTrial.kind === 'country-bridge') {
+                      void handleSubmitCountryBridge(
+                        activeBreakdown.candidateCountries.map((c) => c.id)
+                      );
+                    } else {
+                      void handleSelectOption(activeBreakdown.skillId);
+                    }
+                  }}
                   className="rounded-lg bg-[var(--brand-accent)] px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
                 >
-                  Got it — Select {activeBreakdown.languageName} (Enter) →
+                  {activeTrial.kind === 'country-bridge'
+                    ? `Got it — Select Candidate Countries (Enter) →`
+                    : `Got it — Select ${activeBreakdown.languageName} (Enter) →`}
                 </button>
               </div>
             </div>
@@ -969,29 +1165,31 @@ export function LanguagesSectionView({
             </div>
 
             {/* 2. Distractor Elimination */}
-            <div className="space-y-2">
-              <h3 className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                2. Why Each Distractor Option Is Ruled Out
-              </h3>
-              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="list">
-                {activeBreakdown.distractorEliminations.map((elim) => (
-                  <li
-                    key={elim.optionId}
-                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3 text-[0.75rem]"
-                  >
-                    <p className="font-semibold">
-                      ✗ {elim.languageName}{' '}
-                      <span className="font-normal text-[var(--text-secondary)]">
-                        ({elim.nativeName})
-                      </span>
-                    </p>
-                    <p className="mt-1 text-[var(--text-secondary)]">
-                      {elim.reason}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {activeBreakdown.distractorEliminations.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                  2. Why Each Distractor Option Is Ruled Out
+                </h3>
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="list">
+                  {activeBreakdown.distractorEliminations.map((elim) => (
+                    <li
+                      key={elim.optionId}
+                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3 text-[0.75rem]"
+                    >
+                      <p className="font-semibold">
+                        ✗ {elim.languageName}{' '}
+                        <span className="font-normal text-[var(--text-secondary)]">
+                          ({elim.nativeName})
+                        </span>
+                      </p>
+                      <p className="mt-1 text-[var(--text-secondary)]">
+                        {elim.reason}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* 3. Candidate Countries */}
             <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3 text-[0.75rem]">
@@ -1010,77 +1208,79 @@ export function LanguagesSectionView({
           </section>
         )}
 
-        {/* Choice Buttons (1..6 or 1..2 for Triggered Contrast) */}
-        <div
-          className={`grid grid-cols-1 gap-3 ${
-            activeTrial.kind === 'triggered-contrast'
-              ? 'sm:grid-cols-2'
-              : 'sm:grid-cols-2 md:grid-cols-3'
-          }`}
-          role="group"
-          aria-label="Language choices"
-        >
-          {activeTrial.options.map((option) => {
-            const isExpected = feedback && option.id === feedback.skillId;
-            const isChosenWrong =
-              feedback &&
-              !feedback.correct &&
-              option.id === feedback.chosenOptionId;
+        {/* Choice Buttons (1..6 or 1..2 for Stage 1 & Stage 2 trials) */}
+        {activeTrial.kind !== 'country-bridge' && (
+          <div
+            className={`grid grid-cols-1 gap-3 ${
+              activeTrial.kind === 'triggered-contrast'
+                ? 'sm:grid-cols-2'
+                : 'sm:grid-cols-2 md:grid-cols-3'
+            }`}
+            role="group"
+            aria-label="Language choices"
+          >
+            {activeTrial.options.map((option) => {
+              const isExpected = feedback && option.id === feedback.skillId;
+              const isChosenWrong =
+                feedback &&
+                !feedback.correct &&
+                option.id === feedback.chosenOptionId;
 
-            let buttonStyle =
-              'border-[var(--border-subtle)] bg-[var(--surface-canvas)] hover:border-[var(--brand-accent)]';
-            if (isExpected) {
-              buttonStyle =
-                'border-emerald-500 bg-emerald-500/15 text-emerald-900 dark:text-emerald-100';
-            } else if (isChosenWrong) {
-              buttonStyle =
-                'border-rose-500 bg-rose-500/15 text-rose-900 dark:text-rose-100';
-            } else if (feedback) {
-              buttonStyle =
-                'border-[var(--border-subtle)] bg-[var(--surface-canvas)] opacity-60';
-            }
+              let buttonStyle =
+                'border-[var(--border-subtle)] bg-[var(--surface-canvas)] hover:border-[var(--brand-accent)]';
+              if (isExpected) {
+                buttonStyle =
+                  'border-emerald-500 bg-emerald-500/15 text-emerald-900 dark:text-emerald-100';
+              } else if (isChosenWrong) {
+                buttonStyle =
+                  'border-rose-500 bg-rose-500/15 text-rose-900 dark:text-rose-100';
+              } else if (feedback) {
+                buttonStyle =
+                  'border-[var(--border-subtle)] bg-[var(--surface-canvas)] opacity-60';
+              }
 
-            return (
-              <button
-                key={option.id}
-                type="button"
-                disabled={Boolean(feedback)}
-                onClick={() => void handleSelectOption(option.id)}
-                className={`flex items-center justify-between rounded-xl border px-4 py-3.5 text-left transition ${buttonStyle}`}
-              >
-                <div className="min-w-0 pr-2">
-                  <p className="text-[0.9375rem] font-semibold">
-                    {option.label}
-                  </p>
-                  <p className="truncate text-[0.75rem] text-[var(--text-secondary)]">
-                    {option.sublabel}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {isExpected && (
-                    <span
-                      aria-hidden="true"
-                      className="text-emerald-600 dark:text-emerald-400 font-bold"
-                    >
-                      ✓
-                    </span>
-                  )}
-                  {isChosenWrong && (
-                    <span
-                      aria-hidden="true"
-                      className="text-rose-600 dark:text-rose-400 font-bold"
-                    >
-                      ✗
-                    </span>
-                  )}
-                  <kbd className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2 py-0.5 font-mono text-[0.75rem] font-semibold">
-                    {option.shortcutKey}
-                  </kbd>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  disabled={Boolean(feedback)}
+                  onClick={() => void handleSelectOption(option.id)}
+                  className={`flex items-center justify-between rounded-xl border px-4 py-3.5 text-left transition ${buttonStyle}`}
+                >
+                  <div className="min-w-0 pr-2">
+                    <p className="text-[0.9375rem] font-semibold">
+                      {option.label}
+                    </p>
+                    <p className="truncate text-[0.75rem] text-[var(--text-secondary)]">
+                      {option.sublabel}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {isExpected && (
+                      <span
+                        aria-hidden="true"
+                        className="text-emerald-600 dark:text-emerald-400 font-bold"
+                      >
+                        ✓
+                      </span>
+                    )}
+                    {isChosenWrong && (
+                      <span
+                        aria-hidden="true"
+                        className="text-rose-600 dark:text-rose-400 font-bold"
+                      >
+                        ✗
+                      </span>
+                    )}
+                    <kbd className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2 py-0.5 font-mono text-[0.75rem] font-semibold">
+                      {option.shortcutKey}
+                    </kbd>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Immediate (<100ms) Task-Focused Feedback Panel */}
@@ -1105,10 +1305,13 @@ export function LanguagesSectionView({
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-[1.125rem] font-bold">
-                    {feedback.correct ? 'Correct — ' : `Incorrect — Answer is `}
-                    <span>
-                      {feedback.languageName} ({feedback.nativeName})
-                    </span>
+                    {feedback.mapEvaluation
+                      ? feedback.correct
+                        ? `All Candidate Countries Correct — ${feedback.languageName} (${feedback.nativeName})`
+                        : `Map Selection Incomplete — ${feedback.languageName} (${feedback.nativeName})`
+                      : `${
+                          feedback.correct ? 'Correct — ' : 'Incorrect — Answer is '
+                        }${feedback.languageName} (${feedback.nativeName})`}
                   </h2>
                   {feedback.assisted && (
                     <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-amber-800 dark:text-amber-200">
@@ -1120,14 +1323,19 @@ export function LanguagesSectionView({
                       Stage 2 Contrast Card Queued Next
                     </span>
                   )}
+                  {feedback.bridgeQueued && (
+                    <span className="rounded-full bg-sky-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-sky-700 dark:text-sky-300">
+                      Stage 3 Country Bridge Queued Next
+                    </span>
+                  )}
                 </div>
                 <p className="text-[0.8125rem] text-[var(--text-secondary)]">
                   Response time: {(feedback.responseTimeMs / 1000).toFixed(2)}s{' '}
                   {feedback.assisted
                     ? '· Recorded as assisted exposure (honest Mastery State)'
                     : feedback.isFluentSpeed
-                      ? '· Fluent (<3.5s automatic recognition)'
-                      : '· Above 3.5s fluency threshold (scheduled sooner via ARTS)'}
+                      ? `· Fluent (<${feedback.fluencyTargetMs / 1000}s automatic recognition)`
+                      : `· Above ${feedback.fluencyTargetMs / 1000}s fluency threshold (scheduled sooner via ARTS)`}
                 </p>
               </div>
             </div>
@@ -1140,6 +1348,113 @@ export function LanguagesSectionView({
               Next Trial (Enter) →
             </button>
           </div>
+
+          {/* Stage 3 Map Selection Evaluation Breakdown (Emerald / Amber / Rose + Uncovered Footnotes) */}
+          {feedback.mapEvaluation && (
+            <div
+              className="space-y-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4"
+              data-testid="map-evaluation-breakdown"
+            >
+              <h3 className="text-[0.875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                Stage 3 Map Selection Breakdown
+              </h3>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {/* Correct Selections (Emerald) */}
+                <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3.5">
+                  <p className="text-[0.8125rem] font-bold text-emerald-800 dark:text-emerald-200">
+                    ✓ Correct Selections ({feedback.mapEvaluation.correctCountries.length})
+                  </p>
+                  {feedback.mapEvaluation.correctCountries.length === 0 ? (
+                    <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">
+                      None selected
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1 text-[0.8125rem]">
+                      {feedback.mapEvaluation.correctCountries.map((country) => (
+                        <li
+                          key={`eval-correct-${country.id}`}
+                          className="flex items-center justify-between gap-2 font-medium text-emerald-900 dark:text-emerald-100"
+                        >
+                          <span>✓ {country.name}</span>
+                          <span className="text-[0.6875rem] uppercase opacity-80">
+                            {country.coverageTier}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Missed Candidate Countries (Amber) */}
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5">
+                  <p className="text-[0.8125rem] font-bold text-amber-800 dark:text-amber-200">
+                    ! Missed Candidate Countries ({feedback.mapEvaluation.missedCountries.length})
+                  </p>
+                  {feedback.mapEvaluation.missedCountries.length === 0 ? (
+                    <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">
+                      None missed!
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1 text-[0.8125rem]">
+                      {feedback.mapEvaluation.missedCountries.map((country) => (
+                        <li
+                          key={`eval-missed-${country.id}`}
+                          className="flex items-center justify-between gap-2 font-medium text-amber-900 dark:text-amber-100"
+                        >
+                          <span>! {country.name}</span>
+                          <span className="text-[0.6875rem] uppercase opacity-80">
+                            {country.coverageTier}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Incorrect Clicks Including Uncovered Countries (Rose) */}
+                <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5">
+                  <p className="text-[0.8125rem] font-bold text-rose-800 dark:text-rose-200">
+                    ✗ Incorrect Clicks ({feedback.mapEvaluation.incorrectCountries.length})
+                  </p>
+                  {feedback.mapEvaluation.incorrectCountries.length === 0 ? (
+                    <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">
+                      No false clicks
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1 text-[0.8125rem]">
+                      {feedback.mapEvaluation.incorrectCountries.map((country) => (
+                        <li
+                          key={`eval-incorrect-${country.id}`}
+                          className="flex flex-col text-rose-900 dark:text-rose-100"
+                        >
+                          <span className="font-medium">✗ {country.name}</span>
+                          <span className="text-[0.6875rem] opacity-85">
+                            {country.coverageTier === 'none'
+                              ? 'Uncovered in Street View (coverageTier: none)'
+                              : `Not a Candidate Country for ${feedback.languageName}`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              {feedback.uncoveredCountryNotes.length > 0 && (
+                <div
+                  className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-3 text-[0.8125rem]"
+                  data-testid="uncovered-country-footnotes"
+                >
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">
+                    Informational Footnote — Notable Non-Covered Countries:
+                  </p>
+                  <p className="mt-0.5 text-[var(--text-secondary)]">
+                    {feedback.uncoveredCountryNotes.join(' ')}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Highlighted Sample + English Translation */}
           <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4">
