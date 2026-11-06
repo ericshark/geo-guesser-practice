@@ -77,8 +77,77 @@ describe('UI & Highlighting Verification', () => {
     );
 
     expect(html).toContain('Choose a Confusable Language Group');
+    expect(html).toContain('Smart Practice (Weakest Spots)');
     expect(html).toContain('All-Groups Mixed');
     expect(html).toContain('Southeast Asian');
     expect(html).toContain('Baltic &amp; Finnic');
+  });
+
+  it('renders Guided Breakdown overlay and Stage 2 Triggered Contrast Card cleanly', async () => {
+    const store = new ProgressStore(createInMemoryProgressAdapter());
+    await store.load();
+    const engine = new PracticeEngine(store);
+
+    engine.startLanguageSession({
+      groupId: 'central-slavic-hungarian',
+      skipPrime: true,
+      drillMode: 'samples',
+    });
+
+    // Request Guided Breakdown on the active trial and verify rendered overlay
+    engine.requestGuidedBreakdown();
+    const breakdownHtml = renderToStaticMarkup(
+      React.createElement(LanguagesSectionView, {
+        engine,
+        progress: store.getState(),
+        initialGroup: 'central-slavic-hungarian',
+        onBackToDashboard: () => {},
+      })
+    );
+
+    expect(breakdownHtml).toContain('Guided Breakdown · Assisted Exposure');
+    expect(breakdownHtml).toContain('Why Each Distractor Option Is Ruled Out');
+
+    // Now trigger a Stage 2 Contrast Card by confusing two skills twice
+    const t1 = engine.getCurrentTrial()!;
+    const skillA = t1.skillId;
+    const skillB = t1.options.find((o) => o.id !== skillA)!.id;
+    await engine.submitAnswer(skillB, 2500);
+
+    const t2 = engine.nextTrial();
+    await engine.submitAnswer(t2.skillId, 1100);
+    const t3 = engine.nextTrial();
+    await engine.submitAnswer(t3.skillId, 1100);
+
+    // Next trial after D=2 spacing is the 1st follow-up for skillA; confuse with skillB a 2nd time
+    const t4 = engine.nextTrial();
+    expect(t4.skillId).toBe(skillA);
+    await engine.submitAnswer(skillB, 2600);
+
+    // Advance into the Stage 2 Triggered Contrast Card
+    const contrastTrial = engine.nextTrial();
+    expect(contrastTrial.kind).toBe('triggered-contrast');
+
+    const contrastHtml = renderToStaticMarkup(
+      React.createElement(LanguagesSectionView, {
+        engine,
+        progress: store.getState(),
+        initialGroup: 'central-slavic-hungarian',
+        onBackToDashboard: () => {},
+      })
+    );
+
+    expect(contrastHtml).toContain('Stage 2 Triggered Contrast Card');
+    expect(contrastHtml).toContain('Left Sample');
+    expect(contrastHtml).toContain('Right Sample');
+
+    // Verify Dashboard renders Weakest Learning Skills, Top Confusion Pairs, and Smart Practice button
+    const dashboardHtml = renderToStaticMarkup(
+      React.createElement(App, { customStore: store })
+    );
+    expect(dashboardHtml).toContain('Smart Practice (Weakest Spots)');
+    expect(dashboardHtml).toContain('Weakest Learning Skills');
+    expect(dashboardHtml).toContain('Top Confusion Pairs');
+    expect(dashboardHtml).toContain('mistaken for');
   });
 });

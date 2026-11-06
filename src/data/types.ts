@@ -20,7 +20,7 @@ export type LanguageGroupId =
   | 'mediterranean-middle-east-caucasus'
   | 'african';
 
-export type LanguageGroupSelectionId = LanguageGroupId | 'all-mixed';
+export type LanguageGroupSelectionId = LanguageGroupId | 'all-mixed' | 'smart-weakest';
 
 export interface CurrencySpec {
   symbol: string;

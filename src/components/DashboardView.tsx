@@ -1,12 +1,15 @@
 import React from 'react';
 import {
   LANGUAGE_GROUPS,
-  LANGUAGE_MAP,
   type LanguageGroupSelectionId,
   type SectionId,
 } from '../data/index.ts';
+import {
+  getTopConfusionPairs,
+  getWeakestLearningSkills,
+} from '../engine/practiceEngine.ts';
 import type { ProgressData, SectionMasteryBreakdown } from '../storage/index.ts';
-import { MasteryRing } from './MasteryBadge.tsx';
+import { MasteryBadge, MasteryRing } from './MasteryBadge.tsx';
 
 interface DashboardViewProps {
   progress: ProgressData;
@@ -86,31 +89,8 @@ export function DashboardView({
     Math.round(progress.totalTimeMs / 60_000)
   );
 
-  // Extract top confusion pairs from confusionMatrix
-  const confusionPairs: Array<{
-    expectedId: string;
-    chosenId: string;
-    expectedLabel: string;
-    chosenLabel: string;
-    count: number;
-  }> = [];
-
-  for (const [expectedId, targets] of Object.entries(progress.confusionMatrix)) {
-    for (const [chosenId, count] of Object.entries(targets)) {
-      if (count > 0) {
-        const expLang = LANGUAGE_MAP[expectedId.replace(/^lang:/, '')];
-        const choLang = LANGUAGE_MAP[chosenId.replace(/^lang:/, '')];
-        confusionPairs.push({
-          expectedId,
-          chosenId,
-          expectedLabel: expLang?.name ?? expectedId,
-          chosenLabel: choLang?.name ?? chosenId,
-          count,
-        });
-      }
-    }
-  }
-  confusionPairs.sort((a, b) => b.count - a.count);
+  const confusionPairs = getTopConfusionPairs(progress, 6);
+  const weakestSkills = getWeakestLearningSkills(progress, 6);
 
   return (
     <div className="space-y-8">
@@ -138,10 +118,17 @@ export function DashboardView({
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => onOpenLanguagesSection()}
+              onClick={() => onOpenLanguagesSection('smart-weakest')}
               className="rounded-xl bg-[var(--brand-accent)] px-5 py-2.5 text-[0.9375rem] font-semibold text-white shadow-xs transition hover:opacity-95"
             >
-              Practice Languages
+              Smart Practice (Weakest Spots)
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenLanguagesSection()}
+              className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2.5 text-[0.875rem] font-semibold transition hover:opacity-90"
+            >
+              Browse Language Groups
             </button>
             <button
               type="button"
@@ -215,6 +202,175 @@ export function DashboardView({
           </div>
         </div>
       </section>
+
+      {/* Weakest Spots & Confusion Pair Analytics */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <section
+          aria-labelledby="weakest-skills-heading"
+          className="apple-card flex flex-col justify-between p-6"
+        >
+          <div>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  id="weakest-skills-heading"
+                  className="text-[1.125rem] font-semibold"
+                >
+                  Weakest Learning Skills
+                </h2>
+                <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
+                  Skills in Learning state, recent errors, slow responses, or
+                  assisted Guided Breakdowns prioritized by ARTS.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenLanguagesSection('smart-weakest')}
+                className="shrink-0 rounded-lg bg-[var(--brand-accent)] px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
+              >
+                Drill Weakest →
+              </button>
+            </div>
+
+            {weakestSkills.length === 0 ? (
+              <div className="mt-5 rounded-xl border border-dashed border-[var(--border-subtle)] p-5 text-center">
+                <p className="text-[0.875rem] font-medium">
+                  No weak Learning skills flagged yet
+                </p>
+                <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
+                  Practice any Section or click Smart Practice (Weakest Spots)
+                  to begin tracking response speed and accuracy.
+                </p>
+              </div>
+            ) : (
+              <ul className="mt-4 space-y-2.5" role="list">
+                {weakestSkills.map((skill) => (
+                  <li
+                    key={skill.skillId}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3.5 py-2.5 text-[0.8125rem]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{skill.label}</span>
+                        {skill.sublabel && (
+                          <span className="text-[0.75rem] text-[var(--text-secondary)]">
+                            ({skill.sublabel})
+                          </span>
+                        )}
+                        <MasteryBadge state={skill.mastery} size="xs" />
+                      </div>
+                      <p className="mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">
+                        {skill.accuracyPercent}% unaided accuracy · avg{' '}
+                        {(skill.averageRtMs / 1000).toFixed(1)}s
+                        {skill.assistedCount > 0
+                          ? ` · ${skill.assistedCount} assisted`
+                          : ''}
+                        {skill.confusionCount > 0
+                          ? ` · ${skill.confusionCount} confusions`
+                          : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenLanguagesSection(
+                          skill.groupId ?? 'smart-weakest'
+                        )
+                      }
+                      className="shrink-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
+                    >
+                      Practice
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        <section
+          aria-labelledby="confusion-heading"
+          className="apple-card flex flex-col justify-between p-6"
+        >
+          <div>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  id="confusion-heading"
+                  className="text-[1.125rem] font-semibold"
+                >
+                  Top Confusion Pairs
+                </h2>
+                <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
+                  Directed confusions tracked across trials. Confusing a pair
+                  twice triggers a side-by-side Stage 2 Contrast Card.
+                </p>
+              </div>
+              {confusionPairs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onOpenLanguagesSection('smart-weakest')}
+                  className="shrink-0 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
+                >
+                  Resolve Pairs →
+                </button>
+              )}
+            </div>
+
+            {confusionPairs.length === 0 ? (
+              <div className="mt-5 rounded-xl border border-dashed border-[var(--border-subtle)] p-5 text-center">
+                <p className="text-[0.875rem] font-medium">
+                  No confusion pairs recorded yet
+                </p>
+                <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
+                  Complete a Languages Speed Drill to see which lookalike
+                  languages you mistake for each other.
+                </p>
+              </div>
+            ) : (
+              <ul className="mt-4 space-y-2.5" role="list">
+                {confusionPairs.map((pair) => (
+                  <li
+                    key={`${pair.expectedId}->${pair.chosenId}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3.5 py-2.5 text-[0.8125rem]"
+                  >
+                    <div>
+                      <span>
+                        <strong>{pair.expectedLabel}</strong>{' '}
+                        <span className="text-[var(--text-secondary)]">
+                          mistaken for
+                        </span>{' '}
+                        <strong>{pair.chosenLabel}</strong>
+                      </span>
+                      {pair.groupName && (
+                        <p className="text-[0.75rem] text-[var(--text-secondary)]">
+                          {pair.groupName}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-amber-700 dark:text-amber-300">
+                        {pair.count}×
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenLanguagesSection(
+                            pair.groupId ?? 'smart-weakest'
+                          )
+                        }
+                        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
+                      >
+                        Drill
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      </div>
 
       {/* Sections Grid */}
       <section aria-labelledby="sections-heading" className="space-y-4">
@@ -331,25 +487,32 @@ export function DashboardView({
         </div>
       </section>
 
-      {/* Quick Launch Language Groups + Confusion Pairs */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <section
-          aria-labelledby="quick-groups-heading"
-          className="apple-card p-6 lg:col-span-2"
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2
-                id="quick-groups-heading"
-                className="text-[1.125rem] font-semibold"
-              >
-                Language Groups Quick Launch
-              </h2>
-              <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                Jump straight into a confusable Language Group’s Stage 0 Contrast
-                Card or Stage 1 Speed Drill.
-              </p>
-            </div>
+      {/* Quick Launch Language Groups */}
+      <section
+        aria-labelledby="quick-groups-heading"
+        className="apple-card p-6"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2
+              id="quick-groups-heading"
+              className="text-[1.125rem] font-semibold"
+            >
+              Language Groups Quick Launch
+            </h2>
+            <p className="text-[0.8125rem] text-[var(--text-secondary)]">
+              Jump straight into a confusable Language Group’s Stage 0 Contrast
+              Card or Stage 1 Speed Drill.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenLanguagesSection('smart-weakest')}
+              className="rounded-lg bg-[var(--brand-accent)] px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
+            >
+              Smart Practice (Weakest Spots)
+            </button>
             <button
               type="button"
               onClick={() => onOpenLanguagesSection('all-mixed')}
@@ -358,81 +521,34 @@ export function DashboardView({
               All-Groups Mixed
             </button>
           </div>
+        </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {LANGUAGE_GROUPS.map((group) => {
-              const groupMastered = group.languageIds.filter(
-                (id) => progress.skills[`lang:${id}`]?.mastery === 'mastered'
-              ).length;
-              return (
-                <button
-                  key={group.id}
-                  type="button"
-                  onClick={() => onOpenLanguagesSection(group.id)}
-                  className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-4 py-3 text-left transition hover:border-[var(--brand-accent)]"
-                >
-                  <div>
-                    <p className="text-[0.875rem] font-semibold">
-                      {group.name}
-                    </p>
-                    <p className="text-[0.75rem] text-[var(--text-secondary)]">
-                      {group.languageIds.length} confusable languages
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[0.75rem] font-medium">
-                    {groupMastered}/{group.languageIds.length} Mastered
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <section
-          aria-labelledby="confusion-heading"
-          className="apple-card p-6"
-        >
-          <h2 id="confusion-heading" className="text-[1.125rem] font-semibold">
-            Top Confusion Pairs
-          </h2>
-          <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-            Directed confusions tracked across trials to boost ARTS scheduling
-            priority.
-          </p>
-
-          {confusionPairs.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-dashed border-[var(--border-subtle)] p-5 text-center">
-              <p className="text-[0.875rem] font-medium">
-                No confusion pairs recorded yet
-              </p>
-              <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
-                Complete a Languages Speed Drill to see which lookalike
-                languages you mistake for each other.
-              </p>
-            </div>
-          ) : (
-            <ul className="mt-4 space-y-2.5" role="list">
-              {confusionPairs.slice(0, 6).map((pair) => (
-                <li
-                  key={`${pair.expectedId}->${pair.chosenId}`}
-                  className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3.5 py-2.5 text-[0.8125rem]"
-                >
-                  <span>
-                    <strong>{pair.expectedLabel}</strong>{' '}
-                    <span className="text-[var(--text-secondary)]">
-                      mistaken for
-                    </span>{' '}
-                    <strong>{pair.chosenLabel}</strong>
-                  </span>
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.75rem] font-semibold text-amber-700 dark:text-amber-300">
-                    {pair.count}×
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+        <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {LANGUAGE_GROUPS.map((group) => {
+            const groupMastered = group.languageIds.filter(
+              (id) => progress.skills[`lang:${id}`]?.mastery === 'mastered'
+            ).length;
+            return (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => onOpenLanguagesSection(group.id)}
+                className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-4 py-3 text-left transition hover:border-[var(--brand-accent)]"
+              >
+                <div>
+                  <p className="text-[0.875rem] font-semibold">{group.name}</p>
+                  <p className="text-[0.75rem] text-[var(--text-secondary)]">
+                    {group.languageIds.length} confusable languages
+                  </p>
+                </div>
+                <span className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[0.75rem] font-medium">
+                  {groupMastered}/{group.languageIds.length} Mastered
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

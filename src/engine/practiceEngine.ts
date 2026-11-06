@@ -4,20 +4,24 @@ import {
   getLanguagesForGroupSelection,
   LANGUAGE_GROUP_MAP,
   LANGUAGE_MAP,
+  LANGUAGES,
+  PLAYABLE_COUNTRY_MAP,
   type LanguageGroupId,
   type LanguageGroupSelectionId,
   type LanguageSample,
   type LanguageSpec,
   type MasteryState,
   type PlayableCountry,
+  type SectionId,
   type TellSpanMatch,
   type TellSpec,
 } from '../data/index.ts';
-import type { ProgressStore, SkillAttempt } from '../storage/index.ts';
+import type { ProgressData, ProgressStore, SkillAttempt } from '../storage/index.ts';
 
 export const LANGUAGE_FLUENCY_THRESHOLD_MS = 3500;
 export const DRIVING_SIDE_FLUENCY_THRESHOLD_MS = 2500;
 export const ARTS_SPACING_DELAY = 2;
+export const GUIDED_BREAKDOWN_FOLLOW_UP_COUNT = 2;
 
 export interface ArtsPriorityParams {
   trialsSinceLastSeen: number; // N
@@ -104,6 +108,150 @@ export function calculateMasteryState(
   return 'recognized';
 }
 
+export interface ConfusionPairSummary {
+  expectedId: string;
+  chosenId: string;
+  expectedLabel: string;
+  chosenLabel: string;
+  groupId?: LanguageGroupId;
+  groupName?: string;
+  count: number;
+}
+
+export interface WeakSkillSummary {
+  skillId: string;
+  section: SectionId;
+  label: string;
+  sublabel: string;
+  groupId?: LanguageGroupId;
+  groupName?: string;
+  mastery: MasteryState;
+  accuracyPercent: number;
+  averageRtMs: number;
+  attemptsCount: number;
+  assistedCount: number;
+  confusionCount: number;
+  weaknessScore: number;
+}
+
+export function resolveSkillDisplayInfo(skillId: string): {
+  label: string;
+  sublabel: string;
+  groupId?: LanguageGroupId;
+  groupName?: string;
+} {
+  if (skillId.startsWith('lang:')) {
+    const langId = skillId.replace(/^lang:/, '');
+    const lang = LANGUAGE_MAP[langId];
+    if (lang) {
+      const group = LANGUAGE_GROUP_MAP[lang.groupId];
+      return {
+        label: lang.name,
+        sublabel: lang.nativeName,
+        groupId: lang.groupId,
+        groupName: group?.name,
+      };
+    }
+  } else if (skillId.startsWith('drive:') || skillId.startsWith('cov:') || skillId.startsWith('domain:')) {
+    const countryId = skillId.split(':')[1] ?? '';
+    const country = PLAYABLE_COUNTRY_MAP[countryId];
+    if (country) {
+      return {
+        label: country.name,
+        sublabel: country.region,
+      };
+    }
+  }
+  return {
+    label: skillId,
+    sublabel: '',
+  };
+}
+
+export function getTopConfusionPairs(
+  progress: ProgressData,
+  limit = 6
+): ConfusionPairSummary[] {
+  const pairs: ConfusionPairSummary[] = [];
+  for (const [expectedId, targets] of Object.entries(progress.confusionMatrix)) {
+    for (const [chosenId, count] of Object.entries(targets)) {
+      if (count > 0) {
+        const expInfo = resolveSkillDisplayInfo(expectedId);
+        const choInfo = resolveSkillDisplayInfo(chosenId);
+        pairs.push({
+          expectedId,
+          chosenId,
+          expectedLabel: expInfo.label,
+          chosenLabel: choInfo.label,
+          groupId: expInfo.groupId ?? choInfo.groupId,
+          groupName: expInfo.groupName ?? choInfo.groupName,
+          count,
+        });
+      }
+    }
+  }
+  pairs.sort((a, b) => b.count - a.count || a.expectedId.localeCompare(b.expectedId));
+  return pairs.slice(0, limit);
+}
+
+export function getWeakestLearningSkills(
+  progress: ProgressData,
+  limit = 6
+): WeakSkillSummary[] {
+  const summaries: WeakSkillSummary[] = [];
+
+  for (const [skillId, record] of Object.entries(progress.skills)) {
+    if (record.attempts.length === 0) continue;
+    // Focus on skills in 'learning' state (or any non-mastered skill with errors/confusions)
+    if (record.mastery === 'mastered') continue;
+
+    const recent5 = record.attempts.slice(-5);
+    const unaidedCorrect = recent5.filter((a) => a.correct && !a.assisted).length;
+    const accuracyPercent = Math.round((unaidedCorrect / recent5.length) * 100);
+    const averageRtMs = Math.round(
+      recent5.reduce((sum, a) => sum + a.responseTimeMs, 0) / recent5.length
+    );
+    const assistedCount = recent5.filter((a) => a.assisted).length;
+
+    const outgoingConfusions = Object.values(
+      progress.confusionMatrix[skillId] ?? {}
+    ).reduce((sum, c) => sum + c, 0);
+    let incomingConfusions = 0;
+    for (const row of Object.values(progress.confusionMatrix)) {
+      incomingConfusions += row[skillId] ?? 0;
+    }
+    const confusionCount = outgoingConfusions + incomingConfusions;
+
+    const info = resolveSkillDisplayInfo(skillId);
+    const learningBonus = record.mastery === 'learning' ? 100 : 20;
+    const weaknessScore =
+      learningBonus +
+      (100 - accuracyPercent) * 0.6 +
+      assistedCount * 12 +
+      confusionCount * 15 +
+      Math.min(30, Math.max(0, (averageRtMs - LANGUAGE_FLUENCY_THRESHOLD_MS) / 250));
+
+    summaries.push({
+      skillId,
+      section: record.section,
+      label: info.label,
+      sublabel: info.sublabel,
+      groupId: info.groupId,
+      groupName: info.groupName,
+      mastery: record.mastery,
+      accuracyPercent,
+      averageRtMs,
+      attemptsCount: record.attempts.length,
+      assistedCount,
+      confusionCount,
+      weaknessScore,
+    });
+  }
+
+  summaries.sort((a, b) => b.weaknessScore - a.weaknessScore || a.skillId.localeCompare(b.skillId));
+  return summaries.slice(0, limit);
+}
+
 export type LanguageDrillMode = 'mixed' | 'samples' | 'tells';
 
 export interface LanguageSessionConfig {
@@ -144,12 +292,67 @@ export interface TrialOption {
   shortcutKey: number; // 1..6
 }
 
-export type LanguageTrialKind = 'sample-recognition' | 'tell-recognition';
+export type LanguageTrialKind =
+  | 'sample-recognition'
+  | 'tell-recognition'
+  | 'triggered-contrast';
+
+export interface TriggeredContrastSide {
+  skillId: string;
+  languageId: string;
+  name: string;
+  nativeName: string;
+  script: string;
+  sample: LanguageSample;
+  matchedTells: TellSpanMatch[];
+  tells: TellSpec[];
+  contrastNote: string;
+  gestaltNote: string;
+  candidateCountries: PlayableCountry[];
+}
+
+export interface TriggeredContrastCard {
+  pairKey: string;
+  expectedSkillId: string;
+  confusedWithSkillId: string;
+  confusionCount: number;
+  leftSide: TriggeredContrastSide;
+  rightSide: TriggeredContrastSide;
+}
+
+export interface DistractorElimination {
+  optionId: string;
+  languageId: string;
+  languageName: string;
+  nativeName: string;
+  reason: string;
+  expectedTellsMissing: Array<{ pattern: string; label: string }>;
+}
+
+export interface GuidedBreakdown {
+  skillId: string;
+  languageId: string;
+  languageName: string;
+  nativeName: string;
+  script: string;
+  sample: LanguageSample;
+  translation: string;
+  matchedTells: TellSpanMatch[];
+  structuralClue?: string;
+  gestaltNote: string;
+  contrastNote: string;
+  distractorEliminations: DistractorElimination[];
+  candidateCountries: PlayableCountry[];
+  uncoveredCountryNotes: string[];
+  assisted: true;
+  queuedFollowUps: number;
+}
 
 export interface PracticeTrial {
   trialNumber: number;
   kind: LanguageTrialKind;
   skillId: string; // e.g., 'lang:cs'
+  contrastedSkillId?: string; // e.g., 'lang:sk' when kind === 'triggered-contrast'
   languageId: string;
   groupName: string;
   fluencyThresholdMs: number;
@@ -160,6 +363,9 @@ export interface PracticeTrial {
     label: string;
     script: string;
   };
+  triggeredContrast?: TriggeredContrastCard;
+  assisted?: boolean;
+   isFollowUp?: boolean;
   options: TrialOption[];
   startedAtMs: number;
 }
@@ -173,6 +379,7 @@ export interface ChosenLanguageContrast {
 
 export interface LanguageTrialFeedback {
   correct: boolean;
+  assisted: boolean;
   skillId: string;
   languageId: string;
   languageName: string;
@@ -193,6 +400,7 @@ export interface LanguageTrialFeedback {
   chosenLanguageContrast?: ChosenLanguageContrast;
   candidateCountries: PlayableCountry[];
   uncoveredCountryNotes: string[];
+  triggeredContrastQueued?: boolean;
 }
 
 export interface SessionStats {
@@ -200,6 +408,20 @@ export interface SessionStats {
   correctCount: number;
   fluentCount: number;
   averageResponseTimeMs: number;
+}
+
+interface FollowUpQueueItem {
+  skillId: string;
+  languageId: string;
+  preferredTellId?: string;
+  queuedAtTrial: number;
+}
+
+interface PendingContrastItem {
+  pairKey: string;
+  expectedSkillId: string;
+  confusedWithSkillId: string;
+  confusionCount: number;
 }
 
 export class PracticeEngine {
@@ -211,6 +433,8 @@ export class PracticeEngine {
   private drillMode: LanguageDrillMode = 'mixed';
   private stage0Prime: ContrastCardPrime | null = null;
   private currentTrial: PracticeTrial | null = null;
+  private currentTrialAssisted = false;
+  private activeGuidedBreakdown: GuidedBreakdown | null = null;
   private lastFeedback: LanguageTrialFeedback | null = null;
 
   private sessionTrialCounter = 0;
@@ -218,6 +442,11 @@ export class PracticeEngine {
   private sessionSeenSamplesByLang = new Map<string, Set<string>>();
   private lastSampleIdByLang = new Map<string, string>();
   private lastTellIdByLang = new Map<string, string>();
+
+  private followUpQueue: FollowUpQueueItem[] = [];
+  private pendingContrastQueue: PendingContrastItem[] = [];
+  private pairConfusionsSinceTrigger = new Map<string, number>();
+  private sessionPairBoostBySkill = new Map<string, number>();
 
   private sessionStats: SessionStats = {
     trialsCompleted: 0,
@@ -246,7 +475,13 @@ export class PracticeEngine {
     this.sessionSeenSamplesByLang.clear();
     this.lastSampleIdByLang.clear();
     this.lastTellIdByLang.clear();
+    this.followUpQueue = [];
+    this.pendingContrastQueue = [];
+    this.pairConfusionsSinceTrigger.clear();
+    this.sessionPairBoostBySkill.clear();
     this.currentTrial = null;
+    this.currentTrialAssisted = false;
+    this.activeGuidedBreakdown = null;
     this.lastFeedback = null;
     this.sessionStats = {
       trialsCompleted: 0,
@@ -255,7 +490,11 @@ export class PracticeEngine {
       averageResponseTimeMs: 0,
     };
 
-    if (config.groupId !== 'all-mixed' && !config.skipPrime) {
+    if (
+      config.groupId !== 'all-mixed' &&
+      config.groupId !== 'smart-weakest' &&
+      !config.skipPrime
+    ) {
       const groupSpec = LANGUAGE_GROUP_MAP[config.groupId];
       const state = this.store.getState();
       const languages = getLanguagesForGroupSelection(config.groupId);
@@ -290,6 +529,19 @@ export class PracticeEngine {
     }
   }
 
+  startSmartPracticeSession(drillMode: LanguageDrillMode = 'mixed'): PracticeTrial {
+    this.startLanguageSession({
+      groupId: 'smart-weakest',
+      skipPrime: true,
+      drillMode,
+    });
+    return this.currentTrial!;
+  }
+
+  getActiveGroupSelection(): LanguageGroupSelectionId {
+    return this.activeGroupSelection;
+  }
+
   getStage0Prime(): ContrastCardPrime | null {
     return this.stage0Prime;
   }
@@ -311,6 +563,29 @@ export class PracticeEngine {
     return this.currentTrial;
   }
 
+  getActiveGuidedBreakdown(): GuidedBreakdown | null {
+    return this.activeGuidedBreakdown;
+  }
+
+  dismissGuidedBreakdown(): void {
+    this.activeGuidedBreakdown = null;
+  }
+
+  getQueuedFollowUpCount(skillId?: string): number {
+    if (!skillId) {
+      return this.followUpQueue.length;
+    }
+    return this.followUpQueue.filter((item) => item.skillId === skillId).length;
+  }
+
+  getConfusionMatrix(): Record<string, Record<string, number>> {
+    return this.store.getState().confusionMatrix;
+  }
+
+  getConfusionCount(expectedSkillId: string, chosenSkillId: string): number {
+    return this.store.getState().confusionMatrix[expectedSkillId]?.[chosenSkillId] ?? 0;
+  }
+
   getLastFeedback(): LanguageTrialFeedback | null {
     return this.lastFeedback;
   }
@@ -319,12 +594,153 @@ export class PracticeEngine {
     return { ...this.sessionStats };
   }
 
+  /**
+   * Opens the on-demand Guided Breakdown ("Show me what to look for") for the active trial:
+   * - Highlights the specific Tells (or structural/gestalt clues) on the current prompt
+   * - Explains why each distractor option is ruled out
+   * - Marks the trial as `assisted: true` (preventing false promotion to Mastered)
+   * - Queues 2 follow-up trials for that skill/Tell after the minimum spacing delay D = 2
+   */
+  requestGuidedBreakdown(): GuidedBreakdown {
+    const trial = this.currentTrial;
+    if (!trial) {
+      throw new Error('No active trial to request a Guided Breakdown for.');
+    }
+
+    if (this.activeGuidedBreakdown) {
+      return this.activeGuidedBreakdown;
+    }
+
+    this.currentTrialAssisted = true;
+    trial.assisted = true;
+
+    const targetLanguage = LANGUAGE_MAP[trial.languageId];
+    const matchedTells = findTellMatchesInSample(trial.sample, targetLanguage);
+    const candidateCountries = getCandidateCountriesForLanguage(targetLanguage);
+
+    const distractorEliminations: DistractorElimination[] = trial.options
+      .filter((opt) => opt.id !== trial.skillId)
+      .map((opt) => {
+        const distLang = LANGUAGE_MAP[opt.languageId];
+        if (!distLang) {
+          return {
+            optionId: opt.id,
+            languageId: opt.languageId,
+            languageName: opt.label,
+            nativeName: opt.sublabel,
+            reason: `Does not match the diagnostic features of ${targetLanguage.name}.`,
+            expectedTellsMissing: [],
+          };
+        }
+
+        const expectedTellsMissing = distLang.tells.slice(0, 2).map((t) => ({
+          pattern: t.pattern,
+          label: t.label,
+        }));
+
+        const targetCueSummary =
+          matchedTells.length > 0
+            ? matchedTells.map((m) => `${m.pattern} (${m.label})`).join(', ')
+            : trial.sample.structuralClue ?? targetLanguage.gestaltNote;
+
+        const missingSummary = expectedTellsMissing
+          .map((t) => `${t.pattern} (${t.label})`)
+          .join(' or ');
+
+        const reason =
+          matchedTells.length > 0
+            ? `Ruled out: this prompt contains ${targetCueSummary} pointing to ${targetLanguage.name}, and lacks ${distLang.name} markers such as ${missingSummary}. ${distLang.contrastNote}`
+            : `Ruled out: ${distLang.name} typically shows ${missingSummary}. ${distLang.contrastNote} Here, use ${targetLanguage.name}'s structural cue (${targetCueSummary}).`;
+
+        return {
+          optionId: opt.id,
+          languageId: distLang.id,
+          languageName: distLang.name,
+          nativeName: distLang.nativeName,
+          reason,
+          expectedTellsMissing,
+        };
+      });
+
+    const preferredTellId =
+      trial.tellPrompt?.tellId ?? matchedTells[0]?.tellId ?? targetLanguage.tells[0]?.id;
+
+    // Queue 2 follow-up trials for this skill/Tell (capped at 3 queued for the same skill)
+    const existingQueuedForSkill = this.followUpQueue.filter(
+      (q) => q.skillId === trial.skillId
+    ).length;
+    const toEnqueue = Math.max(
+      0,
+      Math.min(GUIDED_BREAKDOWN_FOLLOW_UP_COUNT, 3 - existingQueuedForSkill)
+    );
+
+    for (let i = 0; i < toEnqueue; i++) {
+      this.followUpQueue.push({
+        skillId: trial.skillId,
+        languageId: targetLanguage.id,
+        preferredTellId,
+        queuedAtTrial: this.sessionTrialCounter,
+      });
+    }
+
+    const breakdown: GuidedBreakdown = {
+      skillId: trial.skillId,
+      languageId: targetLanguage.id,
+      languageName: targetLanguage.name,
+      nativeName: targetLanguage.nativeName,
+      script: targetLanguage.script,
+      sample: trial.sample,
+      translation: trial.sample.translation,
+      matchedTells,
+      structuralClue: trial.sample.structuralClue,
+      gestaltNote: targetLanguage.gestaltNote,
+      contrastNote: targetLanguage.contrastNote,
+      distractorEliminations,
+      candidateCountries,
+      uncoveredCountryNotes: targetLanguage.uncoveredCountryNotes,
+      assisted: true,
+      queuedFollowUps: this.getQueuedFollowUpCount(trial.skillId),
+    };
+
+    this.activeGuidedBreakdown = breakdown;
+    return breakdown;
+  }
+
   nextTrial(): PracticeTrial {
     this.sessionTrialCounter += 1;
     this.lastFeedback = null;
+    this.currentTrialAssisted = false;
+    this.activeGuidedBreakdown = null;
 
-    const pool = getLanguagesForGroupSelection(this.activeGroupSelection);
-    const chosenLanguage = this.selectNextLanguageByArts(pool);
+    // 1. Check if a Stage 2 Triggered Contrast Card is pending
+    if (this.pendingContrastQueue.length > 0) {
+      const pending = this.pendingContrastQueue.shift()!;
+      this.currentTrial = this.buildTriggeredContrastTrial(pending);
+      return this.currentTrial;
+    }
+
+    // 2. Check if any Guided Breakdown follow-up item has satisfied the D = 2 spacing delay
+    const eligibleFollowUpIdx = this.followUpQueue.findIndex((item) => {
+      const lastSeen = this.sessionLastPresentedAt.get(item.skillId);
+      const trialsSinceLastSeen =
+        lastSeen !== undefined ? this.sessionTrialCounter - lastSeen : 999;
+      return trialsSinceLastSeen > ARTS_SPACING_DELAY;
+    });
+
+    let chosenLanguage: LanguageSpec;
+    let preferredTellId: string | undefined;
+    let isFollowUp = false;
+
+    if (eligibleFollowUpIdx !== -1) {
+      const followUp = this.followUpQueue.splice(eligibleFollowUpIdx, 1)[0];
+      chosenLanguage = LANGUAGE_MAP[followUp.languageId];
+      preferredTellId = followUp.preferredTellId;
+      isFollowUp = true;
+    } else {
+      const pool = this.getActiveLanguagePool();
+      chosenLanguage = this.selectNextLanguageByArts(pool);
+    }
+
     const skillId = `lang:${chosenLanguage.id}`;
     this.sessionLastPresentedAt.set(skillId, this.sessionTrialCounter);
 
@@ -337,27 +753,33 @@ export class PracticeEngine {
             ? 'tell-recognition'
             : 'sample-recognition';
 
-    const sample = this.selectFreshSample(chosenLanguage);
+    const sample = this.selectFreshSample(chosenLanguage, preferredTellId);
     const tellPrompt =
       trialKind === 'tell-recognition'
-        ? this.selectTellPrompt(chosenLanguage, sample)
+        ? this.selectTellPrompt(chosenLanguage, sample, preferredTellId)
         : undefined;
 
     const options = this.buildOptionsForLanguage(chosenLanguage);
     const groupSpec = LANGUAGE_GROUP_MAP[chosenLanguage.groupId];
+
+    const groupName =
+      this.activeGroupSelection === 'smart-weakest'
+        ? `Smart Practice · Weakest Spots (${groupSpec.name})`
+        : this.activeGroupSelection === 'all-mixed'
+          ? `All-Groups Mixed (${groupSpec.name})`
+          : groupSpec.name;
 
     this.currentTrial = {
       trialNumber: this.sessionTrialCounter,
       kind: trialKind,
       skillId,
       languageId: chosenLanguage.id,
-      groupName:
-        this.activeGroupSelection === 'all-mixed'
-          ? `All-Groups Mixed (${groupSpec.name})`
-          : groupSpec.name,
+      groupName,
       fluencyThresholdMs: LANGUAGE_FLUENCY_THRESHOLD_MS,
       sample,
       tellPrompt,
+      assisted: false,
+      isFollowUp,
       options,
       startedAtMs: this.now(),
     };
@@ -377,6 +799,10 @@ export class PracticeEngine {
     const responseTimeMs =
       explicitResponseTimeMs ?? Math.max(100, this.now() - trial.startedAtMs);
     const correct = chosenOptionId === trial.skillId;
+    const assisted =
+      this.currentTrialAssisted ||
+      Boolean(trial.assisted) ||
+      trial.kind === 'triggered-contrast';
 
     const state = this.store.getState();
     const existingRecord = state.skills[trial.skillId];
@@ -389,7 +815,7 @@ export class PracticeEngine {
         timestamp: this.now(),
         correct,
         responseTimeMs,
-        assisted: false,
+        assisted,
         chosenSkillId: chosenOptionId,
         sampleId: trial.sample.id,
       },
@@ -425,7 +851,7 @@ export class PracticeEngine {
     this.sessionStats.trialsCompleted += 1;
     if (correct) {
       this.sessionStats.correctCount += 1;
-      if (responseTimeMs <= trial.fluencyThresholdMs) {
+      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
         this.sessionStats.fluentCount += 1;
       }
     }
@@ -433,8 +859,64 @@ export class PracticeEngine {
       (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
     );
 
+    await this.store.recordAttempt({
+      section: 'languages',
+      skillId: trial.skillId,
+      chosenSkillId: chosenOptionId,
+      sampleId: trial.sample.id,
+      correct,
+      responseTimeMs,
+      assisted,
+      mastery: newMastery,
+      trialIndex: this.sessionTrialCounter,
+      now: new Date(this.now()),
+    });
+
+    // Check if this error triggers a Stage 2 Contrast Card for (trial.skillId, chosenOptionId)
+    let triggeredContrastQueued = false;
+    if (
+      !correct &&
+      trial.kind !== 'triggered-contrast' &&
+      chosenOptionId !== trial.skillId &&
+      chosenLanguage
+    ) {
+      const pairKey = [trial.skillId, chosenOptionId].sort().join('<->');
+      const nextCount = (this.pairConfusionsSinceTrigger.get(pairKey) ?? 0) + 1;
+      this.pairConfusionsSinceTrigger.set(pairKey, nextCount);
+
+      // Boost priority immediately on any confusion, and trigger Stage 2 Contrast Card on 2nd confusion
+      this.sessionPairBoostBySkill.set(
+        trial.skillId,
+        Math.max(4.0, (this.sessionPairBoostBySkill.get(trial.skillId) ?? 0) + 4.0)
+      );
+      this.sessionPairBoostBySkill.set(
+        chosenOptionId,
+        Math.max(4.0, (this.sessionPairBoostBySkill.get(chosenOptionId) ?? 0) + 4.0)
+      );
+
+      if (nextCount >= 2) {
+        this.pairConfusionsSinceTrigger.set(pairKey, 0);
+        // Strong symmetric boost for both Skill A and Skill B following the Contrast Card
+        this.sessionPairBoostBySkill.set(trial.skillId, 16.0);
+        this.sessionPairBoostBySkill.set(chosenOptionId, 16.0);
+
+        const totalPairConfusions =
+          this.getConfusionCount(trial.skillId, chosenOptionId) +
+          this.getConfusionCount(chosenOptionId, trial.skillId);
+
+        this.pendingContrastQueue.push({
+          pairKey,
+          expectedSkillId: trial.skillId,
+          confusedWithSkillId: chosenOptionId,
+          confusionCount: Math.max(2, totalPairConfusions),
+        });
+        triggeredContrastQueued = true;
+      }
+    }
+
     const feedback: LanguageTrialFeedback = {
       correct,
+      assisted,
       skillId: trial.skillId,
       languageId: targetLanguage.id,
       languageName: targetLanguage.name,
@@ -443,7 +925,7 @@ export class PracticeEngine {
       chosenLanguageName: chosenLanguage?.name ?? chosenOptionId,
       responseTimeMs,
       fluencyTargetMs: trial.fluencyThresholdMs,
-      isFluentSpeed: correct && responseTimeMs <= trial.fluencyThresholdMs,
+      isFluentSpeed: correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
       previousMastery,
       newMastery,
       sample: trial.sample,
@@ -455,24 +937,144 @@ export class PracticeEngine {
       chosenLanguageContrast,
       candidateCountries,
       uncoveredCountryNotes: targetLanguage.uncoveredCountryNotes,
+      triggeredContrastQueued,
     };
 
     this.lastFeedback = feedback;
-
-    await this.store.recordAttempt({
-      section: 'languages',
-      skillId: trial.skillId,
-      chosenSkillId: chosenOptionId,
-      sampleId: trial.sample.id,
-      correct,
-      responseTimeMs,
-      assisted: false,
-      mastery: newMastery,
-      trialIndex: this.sessionTrialCounter,
-      now: new Date(this.now()),
-    });
-
     return feedback;
+  }
+
+  private buildTriggeredContrastTrial(pending: PendingContrastItem): PracticeTrial {
+    const langAId = pending.expectedSkillId.replace(/^lang:/, '');
+    const langBId = pending.confusedWithSkillId.replace(/^lang:/, '');
+    const langA = LANGUAGE_MAP[langAId];
+    const langB = LANGUAGE_MAP[langBId];
+
+    const sampleA = this.selectFreshSample(langA);
+    const sampleB = this.selectFreshSample(langB);
+
+    const sideA: TriggeredContrastSide = {
+      skillId: pending.expectedSkillId,
+      languageId: langA.id,
+      name: langA.name,
+      nativeName: langA.nativeName,
+      script: langA.script,
+      sample: sampleA,
+      matchedTells: findTellMatchesInSample(sampleA, langA),
+      tells: langA.tells,
+      contrastNote: langA.contrastNote,
+      gestaltNote: langA.gestaltNote,
+      candidateCountries: getCandidateCountriesForLanguage(langA),
+    };
+
+    const sideB: TriggeredContrastSide = {
+      skillId: pending.confusedWithSkillId,
+      languageId: langB.id,
+      name: langB.name,
+      nativeName: langB.nativeName,
+      script: langB.script,
+      sample: sampleB,
+      matchedTells: findTellMatchesInSample(sampleB, langB),
+      tells: langB.tells,
+      contrastNote: langB.contrastNote,
+      gestaltNote: langB.gestaltNote,
+      candidateCountries: getCandidateCountriesForLanguage(langB),
+    };
+
+    const groupSpec = LANGUAGE_GROUP_MAP[langA.groupId];
+
+    const options: TrialOption[] = [
+      {
+        id: pending.expectedSkillId,
+        languageId: langA.id,
+        label: `Left: ${langA.name} · Right: ${langB.name}`,
+        sublabel: `${langA.nativeName} vs ${langB.nativeName}`,
+        shortcutKey: 1,
+      },
+      {
+        id: pending.confusedWithSkillId,
+        languageId: langB.id,
+        label: `Left: ${langB.name} · Right: ${langA.name}`,
+        sublabel: `${langB.nativeName} vs ${langA.nativeName}`,
+        shortcutKey: 2,
+      },
+    ];
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      kind: 'triggered-contrast',
+      skillId: pending.expectedSkillId,
+      contrastedSkillId: pending.confusedWithSkillId,
+      languageId: langA.id,
+      groupName: `${groupSpec.name} · Stage 2 Triggered Contrast`,
+      fluencyThresholdMs: LANGUAGE_FLUENCY_THRESHOLD_MS,
+      sample: sampleA,
+      triggeredContrast: {
+        pairKey: pending.pairKey,
+        expectedSkillId: pending.expectedSkillId,
+        confusedWithSkillId: pending.confusedWithSkillId,
+        confusionCount: pending.confusionCount,
+        leftSide: sideA,
+        rightSide: sideB,
+      },
+      assisted: true,
+      options,
+      startedAtMs: this.now(),
+    };
+  }
+
+  private getActiveLanguagePool(): LanguageSpec[] {
+    if (this.activeGroupSelection !== 'smart-weakest') {
+      return getLanguagesForGroupSelection(this.activeGroupSelection);
+    }
+
+    const state = this.store.getState();
+    const targetIds = new Set<string>();
+
+    // 1. All languages currently in 'learning' Mastery State
+    for (const [skillId, record] of Object.entries(state.skills)) {
+      if (skillId.startsWith('lang:') && record.mastery === 'learning') {
+        const langId = skillId.replace(/^lang:/, '');
+        if (LANGUAGE_MAP[langId]) {
+          targetIds.add(langId);
+        }
+      }
+    }
+
+    // 2. All languages involved in recorded confusion pairs (both expected and chosen)
+    for (const [expectedId, targets] of Object.entries(state.confusionMatrix)) {
+      for (const [chosenId, count] of Object.entries(targets)) {
+        if (count > 0) {
+          const expLang = expectedId.replace(/^lang:/, '');
+          const choLang = chosenId.replace(/^lang:/, '');
+          if (LANGUAGE_MAP[expLang]) targetIds.add(expLang);
+          if (LANGUAGE_MAP[choLang]) targetIds.add(choLang);
+        }
+      }
+    }
+
+    if (targetIds.size === 0) {
+      return LANGUAGES;
+    }
+
+    // Ensure at least 4 skills in the rotation so ARTS spacing delay D = 2 is always satisfiable
+    if (targetIds.size < 4) {
+      const primaryGroups = new Set<LanguageGroupId>();
+      for (const langId of targetIds) {
+        const spec = LANGUAGE_MAP[langId];
+        if (spec) primaryGroups.add(spec.groupId);
+      }
+      for (const groupId of primaryGroups) {
+        for (const peerId of LANGUAGE_GROUP_MAP[groupId].languageIds) {
+          if (targetIds.size >= 4) break;
+          targetIds.add(peerId);
+        }
+      }
+    }
+
+    return Array.from(targetIds)
+      .map((id) => LANGUAGE_MAP[id])
+      .filter((l): l is LanguageSpec => Boolean(l));
   }
 
   private selectNextLanguageByArts(pool: LanguageSpec[]): LanguageSpec {
@@ -487,19 +1089,24 @@ export class PracticeEngine {
           : 999;
 
       const record = state.skills[skillId];
-      const confusionRow = state.confusionMatrix[skillId] ?? {};
-      const totalConfusions = Object.values(confusionRow).reduce(
-        (sum, count) => sum + count,
-        0
-      );
-      const confusionBoost = Math.min(4.0, totalConfusions * 0.75);
+      const outgoingConfusions = Object.values(
+        state.confusionMatrix[skillId] ?? {}
+      ).reduce((sum, count) => sum + count, 0);
+      let incomingConfusions = 0;
+      for (const row of Object.values(state.confusionMatrix)) {
+        incomingConfusions += row[skillId] ?? 0;
+      }
+      const totalConfusions = outgoingConfusions + incomingConfusions;
+      const sessionPairBoost = this.sessionPairBoostBySkill.get(skillId) ?? 0;
+      const confusionBoost =
+        Math.min(6.0, totalConfusions * 0.75) + sessionPairBoost;
 
       let priority: number;
       if (trialsSinceLastSeen <= ARTS_SPACING_DELAY) {
         // Blocked by spacing delay D = 2
         priority = trialsSinceLastSeen - ARTS_SPACING_DELAY - 10;
       } else if (!record || record.attempts.length === 0) {
-        // Unseen skill: introduce steadily, but behind due error/slow reviews (priority ~2.0)
+        // Unseen skill: introduce steadily, or boost if part of an active confusion pair
         priority = 2.0 - index * 0.01 + confusionBoost;
       } else {
         const lastAttempt = record.attempts[record.attempts.length - 1];
@@ -524,10 +1131,24 @@ export class PracticeEngine {
       return b.trialsSinceLastSeen - a.trialsSinceLastSeen;
     });
 
-    return scored[0].lang;
+    const chosen = scored[0].lang;
+    const chosenSkillId = `lang:${chosen.id}`;
+    if (this.sessionPairBoostBySkill.has(chosenSkillId)) {
+      const prev = this.sessionPairBoostBySkill.get(chosenSkillId) ?? 0;
+      if (prev <= 4.0) {
+        this.sessionPairBoostBySkill.delete(chosenSkillId);
+      } else {
+        this.sessionPairBoostBySkill.set(chosenSkillId, prev * 0.5);
+      }
+    }
+
+    return chosen;
   }
 
-  private selectFreshSample(language: LanguageSpec): LanguageSample {
+  private selectFreshSample(
+    language: LanguageSpec,
+    preferredTellId?: string
+  ): LanguageSample {
     const seenInSession =
       this.sessionSeenSamplesByLang.get(language.id) ?? new Set<string>();
     const lastSampleId = this.lastSampleIdByLang.get(language.id);
@@ -546,7 +1167,17 @@ export class PracticeEngine {
       }
     }
 
-    const chosen = candidates[0];
+    // If this is a follow-up for a specific Tell, prefer a fresh sample containing that Tell
+    let chosen = candidates[0];
+    if (preferredTellId) {
+      const matchingSample = candidates.find((s) =>
+        s.tellIds.includes(preferredTellId)
+      );
+      if (matchingSample) {
+        chosen = matchingSample;
+      }
+    }
+
     seenInSession.add(chosen.id);
     this.sessionSeenSamplesByLang.set(language.id, seenInSession);
     this.lastSampleIdByLang.set(language.id, chosen.id);
@@ -555,7 +1186,8 @@ export class PracticeEngine {
 
   private selectTellPrompt(
     language: LanguageSpec,
-    sample: LanguageSample
+    sample: LanguageSample,
+    preferredTellId?: string
   ): {
     tellId: string;
     pattern: string;
@@ -563,10 +1195,14 @@ export class PracticeEngine {
     script: string;
   } {
     const lastTellId = this.lastTellIdByLang.get(language.id);
+    const preferredTell = preferredTellId
+      ? language.tells.find((t) => t.id === preferredTellId)
+      : undefined;
     const matchingTell = language.tells.find(
       (t) => sample.tellIds.includes(t.id) && t.id !== lastTellId
     );
     const chosenTell =
+      preferredTell ??
       matchingTell ??
       language.tells.find((t) => t.id !== lastTellId) ??
       language.tells[0];

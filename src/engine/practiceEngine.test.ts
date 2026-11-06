@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ProgressStore, createInMemoryProgressAdapter } from '../storage/index.ts';
-import { PracticeEngine, calculateMasteryState, computeArtsPriority } from './practiceEngine.ts';
+import {
+  PracticeEngine,
+  calculateMasteryState,
+  computeArtsPriority,
+  getTopConfusionPairs,
+  getWeakestLearningSkills,
+} from './practiceEngine.ts';
 
 describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)', () => {
   let store: ProgressStore;
@@ -227,5 +233,198 @@ describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)',
         ceiling
       )
     ).toBe('learning');
+  });
+
+  it('Guided Breakdown highlights Tells, explains distractor elimination, records assisted: true (preventing false promotion to Mastered), and queues 2 follow-up trials after D = 2 spacing delay', async () => {
+    // Seed 3 prior fast, unaided correct attempts for Polish ('lang:pl') so a 4th unaided fast correct would normally promote it to 'mastered'
+    for (let i = 1; i <= 3; i++) {
+      await store.recordAttempt({
+        section: 'languages',
+        skillId: 'lang:pl',
+        chosenSkillId: 'lang:pl',
+        sampleId: `pl-seed-${i}`,
+        correct: true,
+        responseTimeMs: 1500,
+        assisted: false,
+        mastery: 'learning',
+        trialIndex: i,
+      });
+    }
+
+    engine.startLanguageSession({
+      groupId: 'central-slavic-hungarian',
+      skipPrime: true,
+      drillMode: 'samples',
+    });
+
+    // Advance until 'lang:pl' is presented
+    let trial = engine.getCurrentTrial()!;
+    while (trial.skillId !== 'lang:pl') {
+      await engine.submitAnswer(trial.skillId, 1200);
+      trial = engine.nextTrial();
+    }
+
+    const breakdownTrialNumber = trial.trialNumber;
+    const breakdown = engine.requestGuidedBreakdown();
+
+    expect(breakdown.assisted).toBe(true);
+    expect(breakdown.skillId).toBe('lang:pl');
+    expect(breakdown.languageName).toBe('Polish');
+    expect(breakdown.queuedFollowUps).toBe(2);
+    // Must explain why every distractor option is ruled out
+    expect(breakdown.distractorEliminations).toHaveLength(trial.options.length - 1);
+    for (const elim of breakdown.distractorEliminations) {
+      expect(elim.optionId).not.toBe('lang:pl');
+      expect(elim.reason.length).toBeGreaterThan(20);
+    }
+
+    // Submit the correct option fast (1200ms) after using Guided Breakdown
+    const feedback = await engine.submitAnswer('lang:pl', 1200);
+    expect(feedback.correct).toBe(true);
+    expect(feedback.assisted).toBe(true);
+    // Must remain 'learning' rather than promoting to 'mastered'
+    expect(feedback.newMastery).toBe('learning');
+    expect(store.getState().skills['lang:pl']?.mastery).toBe('learning');
+    const latestAttempt = store.getState().skills['lang:pl']!.attempts.at(-1)!;
+    expect(latestAttempt.assisted).toBe(true);
+
+    // Next 2 trials (intervening trials 1 and 2) must NOT be 'lang:pl' due to D = 2 spacing delay
+    const intervening1 = engine.nextTrial();
+    expect(intervening1.skillId).not.toBe('lang:pl');
+    await engine.submitAnswer(intervening1.skillId, 1100);
+
+    const intervening2 = engine.nextTrial();
+    expect(intervening2.skillId).not.toBe('lang:pl');
+    await engine.submitAnswer(intervening2.skillId, 1100);
+
+    // Trial breakdownTrialNumber + 3 (after D = 2 intervening trials): 1st queued follow-up for 'lang:pl' fires!
+    const followUp1 = engine.nextTrial();
+    expect(followUp1.trialNumber).toBe(breakdownTrialNumber + 3);
+    expect(followUp1.skillId).toBe('lang:pl');
+    expect(followUp1.isFollowUp).toBe(true);
+    // Even if learner answers followUp1 fast and unaided (1000ms), 2nd queued follow-up still remains queued
+    await engine.submitAnswer('lang:pl', 1000);
+    expect(engine.getQueuedFollowUpCount('lang:pl')).toBe(1);
+
+    // Another 2 intervening trials before 2nd follow-up
+    const intervening3 = engine.nextTrial();
+    expect(intervening3.skillId).not.toBe('lang:pl');
+    await engine.submitAnswer(intervening3.skillId, 1100);
+
+    const intervening4 = engine.nextTrial();
+    expect(intervening4.skillId).not.toBe('lang:pl');
+    await engine.submitAnswer(intervening4.skillId, 1100);
+
+    // 2nd queued follow-up for 'lang:pl' fires after D = 2 spacing delay!
+    const followUp2 = engine.nextTrial();
+    expect(followUp2.skillId).toBe('lang:pl');
+    expect(followUp2.isFollowUp).toBe(true);
+    expect(engine.getQueuedFollowUpCount('lang:pl')).toBe(0);
+  });
+
+  it('tracks directed confusion matrix and triggers a Stage 2 side-by-side Contrast Card when Skill A is confused with Skill B twice, followed by boosted priority for both skills', async () => {
+    engine.startLanguageSession({
+      groupId: 'central-slavic-hungarian', // pl, cs, sk, hu, sl, hr
+      skipPrime: true,
+      drillMode: 'samples',
+    });
+
+    // Trial 1: skillA (e.g., 'lang:pl') confused with skillB ('lang:hu') — 1st confusion
+    const t1 = engine.getCurrentTrial()!;
+    const skillA = t1.skillId;
+    const skillB = 'lang:hu';
+    expect(skillA).not.toBe(skillB);
+
+    const fb1 = await engine.submitAnswer(skillB, 2800);
+    expect(fb1.correct).toBe(false);
+    expect(fb1.triggeredContrastQueued).toBe(false);
+    expect(engine.getConfusionCount(skillA, skillB)).toBe(1);
+
+    // 2 intervening trials (Trials 2 and 3) answered fast & accurately
+    const t2 = engine.nextTrial();
+    await engine.submitAnswer(t2.skillId, 1100);
+    const t3 = engine.nextTrial();
+    await engine.submitAnswer(t3.skillId, 1100);
+
+    // Trial 4: skillA returns after D = 2 spacing delay; confuse it with skillB a 2nd time!
+    const t4 = engine.nextTrial();
+    expect(t4.skillId).toBe(skillA);
+    const fb4 = await engine.submitAnswer(skillB, 2900);
+    expect(fb4.correct).toBe(false);
+    expect(fb4.triggeredContrastQueued).toBe(true);
+    expect(engine.getConfusionCount(skillA, skillB)).toBe(2);
+
+    // Trial 5: automatically inserts the Stage 2 Triggered Contrast Card comparing skillA and skillB side by side
+    const contrastTrial = engine.nextTrial();
+    expect(contrastTrial.kind).toBe('triggered-contrast');
+    expect(contrastTrial.triggeredContrast).toBeDefined();
+    expect(contrastTrial.triggeredContrast!.expectedSkillId).toBe(skillA);
+    expect(contrastTrial.triggeredContrast!.confusedWithSkillId).toBe(skillB);
+    expect(contrastTrial.triggeredContrast!.confusionCount).toBe(2);
+    expect(contrastTrial.triggeredContrast!.leftSide.skillId).toBe(skillA);
+    expect(contrastTrial.triggeredContrast!.rightSide.skillId).toBe(skillB);
+    expect(contrastTrial.options).toHaveLength(2);
+
+    // Match each side on the Contrast Card
+    const contrastFeedback = await engine.submitAnswer(contrastTrial.skillId, 2200);
+    expect(contrastFeedback.correct).toBe(true);
+
+    // Subsequent trials must prioritize BOTH skillB and skillA ahead of unconfused skills in the group
+    const nextAfterContrast1 = engine.nextTrial();
+    const nextAfterContrast2 = (() => {
+      void engine.submitAnswer(nextAfterContrast1.skillId, 1200);
+      return engine.nextTrial();
+    })();
+
+    expect([nextAfterContrast1.skillId, nextAfterContrast2.skillId]).toEqual(
+      expect.arrayContaining([skillA, skillB])
+    );
+  });
+
+  it('identifies top confusion pairs and weakest Learning skills and launches Smart Practice (Weakest Spots) targeting them', async () => {
+    await store.recordAttempt({
+      section: 'languages',
+      skillId: 'lang:sk',
+      chosenSkillId: 'lang:cs',
+      sampleId: 'sk-sent-1',
+      correct: false,
+      responseTimeMs: 4100,
+      assisted: false,
+      mastery: 'learning',
+      trialIndex: 1,
+    });
+    await store.recordAttempt({
+      section: 'languages',
+      skillId: 'lang:sk',
+      chosenSkillId: 'lang:cs',
+      sampleId: 'sk-sign-1',
+      correct: false,
+      responseTimeMs: 3900,
+      assisted: false,
+      mastery: 'learning',
+      trialIndex: 2,
+    });
+
+    const state = store.getState();
+    const topPairs = getTopConfusionPairs(state);
+    expect(topPairs).toHaveLength(1);
+    expect(topPairs[0]).toMatchObject({
+      expectedId: 'lang:sk',
+      chosenId: 'lang:cs',
+      expectedLabel: 'Slovak',
+      chosenLabel: 'Czech',
+      count: 2,
+    });
+
+    const weakest = getWeakestLearningSkills(state);
+    expect(weakest.length).toBeGreaterThanOrEqual(1);
+    expect(weakest[0].skillId).toBe('lang:sk');
+    expect(weakest[0].mastery).toBe('learning');
+
+    // Launching Smart Practice (Weakest Spots) immediately starts a trial targeting the weak/confused skills
+    const smartTrial = engine.startSmartPracticeSession('samples');
+    expect(smartTrial).not.toBeNull();
+    expect(smartTrial.skillId).toBe('lang:sk');
+    expect(smartTrial.groupName).toContain('Smart Practice');
   });
 });

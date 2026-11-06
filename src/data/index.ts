@@ -120,7 +120,7 @@ export const LANGUAGE_GROUP_MAP: Record<LanguageGroupId, LanguageGroupSpec> = Ob
 export function getLanguagesForGroupSelection(
   selection: LanguageGroupSelectionId
 ): LanguageSpec[] {
-  if (selection === 'all-mixed') {
+  if (selection === 'all-mixed' || selection === 'smart-weakest') {
     return LANGUAGES;
   }
   const group = LANGUAGE_GROUP_MAP[selection];

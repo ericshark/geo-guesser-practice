@@ -171,6 +171,8 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
           <span>
             Shortcuts: <kbd className="font-mono">1</kbd>–
             <kbd className="font-mono">6</kbd> select ·{' '}
+            <kbd className="font-mono">Space</kbd> /{' '}
+            <kbd className="font-mono">?</kbd> guided breakdown ·{' '}
             <kbd className="font-mono">Enter</kbd> continue ·{' '}
             <kbd className="font-mono">Esc</kbd> back
           </span>
