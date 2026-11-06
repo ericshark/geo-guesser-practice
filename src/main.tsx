@@ -1,9 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { CoverageSectionView } from './components/CoverageSectionView.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { DataManagementModal } from './components/DataManagementModal.tsx';
 import { LanguagesSectionView } from './components/LanguagesSectionView.tsx';
-import type { LanguageGroupSelectionId, SectionId } from './data/index.ts';
+import type {
+  CoverageFocusId,
+  LanguageGroupSelectionId,
+  SectionId,
+} from './data/index.ts';
 import { PracticeEngine } from './engine/practiceEngine.ts';
 import {
   createBrowserProgressAdapter,
@@ -13,7 +18,7 @@ import {
 } from './storage/index.ts';
 import './style.css';
 
-type ActiveRoute = 'dashboard' | 'languages';
+type ActiveRoute = 'dashboard' | 'languages' | 'coverage';
 
 export function App({ customStore }: { customStore?: ProgressStore }) {
   const store = useMemo(
@@ -28,6 +33,8 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
   const [route, setRoute] = useState<ActiveRoute>('dashboard');
   const [initialLanguageGroup, setInitialLanguageGroup] =
     useState<LanguageGroupSelectionId | null>(null);
+  const [initialCoverageFocus, setInitialCoverageFocus] =
+    useState<CoverageFocusId | null>(null);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
 
   useEffect(() => {
@@ -42,7 +49,9 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
     document.title =
       route === 'languages'
         ? 'Languages Practice | GeoGuessr Practice'
-        : 'Dashboard | GeoGuessr Practice';
+        : route === 'coverage'
+          ? 'Coverage Practice | GeoGuessr Practice'
+          : 'Dashboard | GeoGuessr Practice';
   }, [route]);
 
   const sectionBreakdowns: Record<SectionId, SectionMasteryBreakdown> = useMemo(
@@ -61,6 +70,11 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
     setRoute('languages');
   };
 
+  const handleOpenCoverage = (focus?: CoverageFocusId) => {
+    setInitialCoverageFocus(focus ?? null);
+    setRoute('coverage');
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       <a href="#main-content" className="skip-link visually-hidden">
@@ -74,6 +88,7 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
               type="button"
               onClick={() => {
                 setInitialLanguageGroup(null);
+                setInitialCoverageFocus(null);
                 setRoute('dashboard');
               }}
               className="flex items-center gap-2.5 text-left font-semibold tracking-tight"
@@ -95,6 +110,7 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
                     aria-current={route === 'dashboard' ? 'page' : undefined}
                     onClick={() => {
                       setInitialLanguageGroup(null);
+                      setInitialCoverageFocus(null);
                       setRoute('dashboard');
                     }}
                     className={`rounded-lg px-3 py-1.5 text-[0.875rem] font-medium transition ${
@@ -118,6 +134,20 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
                     }`}
                   >
                     Languages
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    aria-current={route === 'coverage' ? 'page' : undefined}
+                    onClick={() => handleOpenCoverage()}
+                    className={`rounded-lg px-3 py-1.5 text-[0.875rem] font-medium transition ${
+                      route === 'coverage'
+                        ? 'bg-zinc-500/12 font-semibold'
+                        : 'text-[var(--text-secondary)] hover:bg-zinc-500/10'
+                    }`}
+                  >
+                    Coverage
                   </button>
                 </li>
               </ul>
@@ -148,7 +178,18 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
             progress={progress}
             sectionBreakdowns={sectionBreakdowns}
             onOpenLanguagesSection={handleOpenLanguages}
+            onOpenCoverageSection={handleOpenCoverage}
             onOpenDataModal={() => setIsDataModalOpen(true)}
+          />
+        ) : route === 'coverage' ? (
+          <CoverageSectionView
+            engine={engine}
+            progress={progress}
+            initialFocus={initialCoverageFocus}
+            onBackToDashboard={() => {
+              setInitialCoverageFocus(null);
+              setRoute('dashboard');
+            }}
           />
         ) : (
           <LanguagesSectionView

@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { App } from './main.tsx';
+import { CoverageSectionView } from './components/CoverageSectionView.tsx';
 import { LanguagesSectionView } from './components/LanguagesSectionView.tsx';
 import { WorldMapView } from './components/WorldMapView.tsx';
 import {
@@ -252,5 +253,63 @@ describe('UI & Highlighting Verification', () => {
     expect(bridgeFeedbackHtml).toContain('Missed Candidate Countries');
     expect(bridgeFeedbackHtml).toContain('Incorrect Clicks');
     expect(bridgeFeedbackHtml).toContain('Uncovered in Street View');
+  });
+
+  it('renders CoverageSectionView Focus Picker, active drills, Guided Breakdown, and exact Coverage Tier + Limited regional coverage notes on feedback', async () => {
+    const store = new ProgressStore(createInMemoryProgressAdapter());
+    await store.load();
+    const engine = new PracticeEngine(store);
+
+    // 1. Focus Picker view with all 7 regional focuses and interactive Coverage Tier World Map
+    const pickerHtml = renderToStaticMarkup(
+      React.createElement(CoverageSectionView, {
+        engine,
+        progress: store.getState(),
+        onBackToDashboard: () => {},
+      })
+    );
+    expect(pickerHtml).toContain('Coverage Practice');
+    expect(pickerHtml).toContain('Choose a Regional Focus');
+    expect(pickerHtml).toContain('Common Trap Countries');
+    expect(pickerHtml).toContain('Interactive Street View Coverage Tier Map');
+    expect(pickerHtml).toContain('Lagos'); // Inspected default country 'ng' (Nigeria) regional note
+
+    // 2. Start a Coverage cluster session in Africa, request Guided Breakdown, and render
+    engine.startCoverageSession({
+      focusId: 'Africa',
+      drillMode: 'neighbor-cluster',
+    });
+    engine.requestGuidedBreakdown();
+
+    const activeClusterHtml = renderToStaticMarkup(
+      React.createElement(CoverageSectionView, {
+        engine,
+        progress: store.getState(),
+        initialFocus: 'Africa',
+        onBackToDashboard: () => {},
+      })
+    );
+    expect(activeClusterHtml).toContain('Neighboring Cluster Coverage Trap');
+    expect(activeClusterHtml).toContain(
+      'Guided Breakdown · Assisted Scaffolding'
+    );
+
+    // 3. Submit answer and verify exact Coverage Tier on the map and Regional Street View Coverage Notes for Limited countries
+    const currentTrial = engine.getCurrentTrial()!;
+    const targetCountry = currentTrial.coveragePrompt!.targetCountry;
+    await engine.submitCoverageAnswer(`cov:${targetCountry.id}`, 1800);
+
+    const feedbackHtml = renderToStaticMarkup(
+      React.createElement(CoverageSectionView, {
+        engine,
+        progress: store.getState(),
+        initialFocus: 'Africa',
+        onBackToDashboard: () => {},
+      })
+    );
+    expect(feedbackHtml).toContain('Exact Coverage Tier on the Map');
+    expect(feedbackHtml).toContain(
+      'Regional Street View Coverage Notes (Limited Coverage)'
+    );
   });
 });

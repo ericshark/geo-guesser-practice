@@ -3,6 +3,8 @@ import { LANGUAGES_EAST_SOUTH_ASIA } from './languages-east-south-asia.ts';
 import { LANGUAGES_EUROPE } from './languages-europe.ts';
 import { LANGUAGES_CYRILLIC_MED_AFRICA } from './languages-cyrillic-med-africa.ts';
 import type {
+  CoverageFocusId,
+  CoverageFocusSpec,
   LanguageGroupId,
   LanguageGroupSelectionId,
   LanguageGroupSpec,
@@ -200,4 +202,128 @@ export function getAllSkillIdsForSection(section: SectionId): string[] {
       return [...domainSkills, ...currencySkills];
     }
   }
+}
+
+export const COVERAGE_FOCUS_OPTIONS: CoverageFocusSpec[] = [
+  {
+    id: 'world',
+    name: 'World',
+    shortName: 'World',
+    description:
+      'All 145 Playable Countries and territories across Official, Limited, and None Street View Coverage Tiers.',
+    highlightExamples: ['China (None)', 'Nigeria (Limited)', 'Russia (Limited)', 'Uruguay (Official)'],
+  },
+  {
+    id: 'trap-countries',
+    name: 'Common Trap Countries',
+    shortName: 'Common Traps',
+    description:
+      'High-yield trap countries and partial road gaps: China, Egypt, Morocco, Algeria, Belarus, Moldova, Venezuela, Bolivia, Paraguay, Cuba, Iran, Pakistan road gaps, and their covered neighbors.',
+    highlightExamples: [
+      'China (None)',
+      'Egypt / Morocco / Algeria (None)',
+      'Belarus & Moldova (None)',
+      'Venezuela & Cuba (None)',
+      'Bolivia & Pakistan (Limited)',
+    ],
+  },
+  {
+    id: 'Europe',
+    name: 'Europe',
+    shortName: 'Europe',
+    description:
+      '50 European countries and microstates: contrast broad Official coverage against uncovered Belarus & Moldova and Limited coverage in Russia, Bosnia & Herzegovina, and Cyprus.',
+    highlightExamples: ['Belarus (None)', 'Moldova (None)', 'Russia (Limited)', 'Bosnia (Limited)'],
+  },
+  {
+    id: 'Asia',
+    name: 'Asia',
+    shortName: 'Asia',
+    description:
+      '37 Asian countries and territories: separate Official coverage (Japan, Taiwan, Thailand, Indonesia, UAE, Oman, Jordan) from Limited (India, Vietnam, Laos, Pakistan, South Korea) and None (Mainland China, Iran, Nepal, Myanmar).',
+    highlightExamples: ['China (None)', 'Pakistan (Limited)', 'Vietnam (Limited)', 'Iran (None)'],
+  },
+  {
+    id: 'Africa',
+    name: 'Africa',
+    shortName: 'Africa',
+    description:
+      '25 African countries and territories: master the 13 covered countries (South Africa, Botswana, Eswatini, Lesotho, Réunion, Kenya, Uganda, Rwanda, Ghana, Nigeria, Senegal, Tunisia, Madagascar) vs 12 uncovered traps.',
+    highlightExamples: ['Egypt (None)', 'Morocco & Algeria (None)', 'Nigeria & Kenya (Limited)', 'Tunisia (Limited)'],
+  },
+  {
+    id: 'Americas',
+    name: 'Americas',
+    shortName: 'Americas',
+    description:
+      '27 North, Central, South American & Caribbean countries: contrast Official (US, Mexico, Brazil, Argentina, Chile, Peru, Uruguay) with Limited (Canada, Colombia, Ecuador, Bolivia, Costa Rica, Dominican Republic) and None (Venezuela, Paraguay, Cuba).',
+    highlightExamples: ['Venezuela (None)', 'Paraguay vs Uruguay', 'Bolivia (Limited)', 'Cuba (None)'],
+  },
+  {
+    id: 'Oceania',
+    name: 'Oceania',
+    shortName: 'Oceania',
+    description:
+      '6 Oceanian countries and territories with Official Street View coverage: Australia, New Zealand, Christmas Island, Guam, Northern Mariana Islands, and American Samoa.',
+    highlightExamples: ['Australia (Official)', 'New Zealand (Official)', 'Christmas Island (Official)', 'Guam (Official)'],
+  },
+];
+
+export const COVERAGE_FOCUS_MAP: Record<CoverageFocusId, CoverageFocusSpec> =
+  Object.fromEntries(COVERAGE_FOCUS_OPTIONS.map((f) => [f.id, f])) as Record<
+    CoverageFocusId,
+    CoverageFocusSpec
+  >;
+
+const PRIORITY_TRAP_COUNTRY_IDS = [
+  'cn',
+  'eg',
+  'ma',
+  'dz',
+  'by',
+  'md',
+  've',
+  'bo',
+  'py',
+  'uy',
+  'cu',
+  'ir',
+  'pk',
+  'ng',
+  'ke',
+  'sn',
+  'ru',
+  'vn',
+  'in',
+  'co',
+  'ec',
+  'tn',
+];
+
+export function getCountriesForCoverageFocus(focusId: CoverageFocusId): PlayableCountry[] {
+  let base: PlayableCountry[];
+  if (focusId === 'world') {
+    base = [...PLAYABLE_COUNTRIES];
+  } else if (focusId === 'trap-countries') {
+    const trapAndContrastIds = new Set<string>([
+      ...PRIORITY_TRAP_COUNTRY_IDS,
+      ...PLAYABLE_COUNTRIES.filter((c) => c.isTrapCountry || c.coverageTier === 'none').map(
+        (c) => c.id
+      ),
+    ]);
+    base = PLAYABLE_COUNTRIES.filter((c) => trapAndContrastIds.has(c.id));
+  } else {
+    base = PLAYABLE_COUNTRIES.filter((c) => c.region === focusId);
+  }
+
+  // Order so high-yield trap, limited, and contrast countries appear early when unseen, while keeping every country in the focus pool
+  const priorityIndex = new Map<string, number>(
+    PRIORITY_TRAP_COUNTRY_IDS.map((id, idx) => [id, idx])
+  );
+  return [...base].sort((a, b) => {
+    const pa = priorityIndex.get(a.id) ?? (a.isTrapCountry ? 50 : a.coverageTier === 'limited' ? 60 : 100);
+    const pb = priorityIndex.get(b.id) ?? (b.isTrapCountry ? 50 : b.coverageTier === 'limited' ? 60 : 100);
+    if (pa !== pb) return pa - pb;
+    return a.name.localeCompare(b.name);
+  });
 }

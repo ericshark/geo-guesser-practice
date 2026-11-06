@@ -5,10 +5,16 @@ import {
   calculateMasteryState,
   computeArtsPriority,
   evaluateCountryBridgeSelection,
+  evaluateCoverageMapSelection,
   getTopConfusionPairs,
   getWeakestLearningSkills,
 } from './practiceEngine.ts';
-import { LANGUAGE_MAP } from '../data/index.ts';
+import {
+  COVERAGE_FOCUS_OPTIONS,
+  getCountriesForCoverageFocus,
+  LANGUAGE_MAP,
+  PLAYABLE_COUNTRY_MAP,
+} from '../data/index.ts';
 
 describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)', () => {
   let store: ProgressStore;
@@ -519,5 +525,249 @@ describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)',
     expect(LANGUAGE_MAP['zh-hans'].uncoveredCountryNotes.join(' ')).toContain(
       'Mainland China'
     );
+  });
+
+  it('generates Coverage speed classification, neighboring cluster, and regional map drills across all 7 focuses with exact Coverage Tier and Limited regional notes', async () => {
+    // Verify all 7 regional focuses exist and include Common Trap Countries
+    expect(COVERAGE_FOCUS_OPTIONS.map((f) => f.id)).toEqual([
+      'world',
+      'trap-countries',
+      'Europe',
+      'Asia',
+      'Africa',
+      'Americas',
+      'Oceania',
+    ]);
+
+    const trapCountryIds = getCountriesForCoverageFocus('trap-countries').map(
+      (c) => c.id
+    );
+    expect(trapCountryIds).toEqual(
+      expect.arrayContaining([
+        'cn',
+        'eg',
+        'ma',
+        'dz',
+        'by',
+        'md',
+        've',
+        'bo',
+        'cu',
+        'pk',
+      ])
+    );
+
+    // 1. Speed classification drill (Official vs Limited vs None)
+    const tierTrial = engine.startCoverageSession({
+      focusId: 'trap-countries',
+      drillMode: 'tier-speed',
+    });
+    expect(engine.getActiveSection()).toBe('coverage');
+    expect(tierTrial.kind).toBe('coverage-tier');
+    expect(tierTrial.options.map((o) => o.id)).toEqual([
+      'tier:official',
+      'tier:limited',
+      'tier:none',
+    ]);
+    expect(tierTrial.coveragePrompt).toBeDefined();
+
+    const target = tierTrial.coveragePrompt!.targetCountry;
+    const correctTierChoice = `tier:${target.coverageTier}`;
+    const tierFeedback = await engine.submitCoverageAnswer(
+      correctTierChoice,
+      1900
+    );
+    expect(tierFeedback.correct).toBe(true);
+    expect(tierFeedback.coverageTier).toBe(target.coverageTier);
+    expect(tierFeedback.coverageNote).toBe(target.coverageNote);
+    expect(tierFeedback.mapHighlightedCountryIds).toContain(target.id);
+
+    // Verify ARTS D=2 spacing prevents repeating the same country on the next 2 trials
+    const secondTrial = engine.nextTrial();
+    expect(secondTrial.skillId).not.toBe(tierTrial.skillId);
+    const thirdTrial = engine.nextTrial();
+    expect(thirdTrial.skillId).not.toBe(tierTrial.skillId);
+
+    // 2. Neighboring cluster drill (identify which country in a neighboring cluster lacks coverage or has Limited coverage)
+    const clusterTrial = engine.startCoverageSession({
+      focusId: 'Africa',
+      drillMode: 'neighbor-cluster',
+    });
+    expect(clusterTrial.kind).toBe('coverage-cluster');
+    expect(clusterTrial.coveragePrompt!.clusterCountries!.length).toBeGreaterThanOrEqual(
+      3
+    );
+    const clusterTarget = clusterTrial.coveragePrompt!.targetCountry;
+    const clusterFeedback = await engine.submitCoverageAnswer(
+      `cov:${clusterTarget.id}`,
+      2100
+    );
+    expect(clusterFeedback.correct).toBe(true);
+    expect(clusterFeedback.mapHighlightedCountryIds.length).toBeGreaterThanOrEqual(
+      3
+    );
+
+    // Verify Limited countries surface specific regional coverage notes (e.g., Nigeria Lagos/Abuja, Russia western bias, Pakistan trekker/Lahore, Bolivia corridor)
+    expect(PLAYABLE_COUNTRY_MAP.ng.coverageTier).toBe('limited');
+    expect(PLAYABLE_COUNTRY_MAP.ng.coverageNote).toMatch(/Lagos|Abuja/);
+    expect(PLAYABLE_COUNTRY_MAP.ru.coverageTier).toBe('limited');
+    expect(PLAYABLE_COUNTRY_MAP.ru.coverageNote).toMatch(/European Russia|Trans-Siberian/);
+    expect(PLAYABLE_COUNTRY_MAP.pk.coverageTier).toBe('limited');
+    expect(PLAYABLE_COUNTRY_MAP.pk.coverageNote).toMatch(/Lahore|trekker/i);
+    expect(PLAYABLE_COUNTRY_MAP.bo.coverageTier).toBe('limited');
+    expect(PLAYABLE_COUNTRY_MAP.bo.coverageNote).toMatch(/La Paz|Santa Cruz/);
+
+    // 3. Regional map drill & evaluateCoverageMapSelection
+    const mapTrial = engine.startCoverageSession({
+      focusId: 'Americas',
+      drillMode: 'regional-map',
+    });
+    expect(mapTrial.kind).toBe('coverage-map');
+    const expectedIds = mapTrial.coveragePrompt!.expectedCountryIds!;
+    expect(expectedIds.length).toBeGreaterThan(0);
+
+    // Submit exact expected countries on the regional map
+    const exactMapFeedback = await engine.submitCoverageMapAnswer(
+      expectedIds,
+      2800
+    );
+    expect(exactMapFeedback.correct).toBe(true);
+    expect(exactMapFeedback.mapEvaluation).toBeDefined();
+    expect(exactMapFeedback.mapEvaluation!.perfect).toBe(true);
+    expect(exactMapFeedback.mapEvaluation!.missedCountryIds).toEqual([]);
+    expect(exactMapFeedback.mapEvaluation!.incorrectCountryIds).toEqual([]);
+
+    // Direct check on evaluateCoverageMapSelection with partial + false-alarm clicks
+    const americasPool = getCountriesForCoverageFocus('Americas');
+    const americasUncoveredIds = americasPool
+      .filter((c) => c.coverageTier === 'none')
+      .map((c) => c.id);
+    const uncoveredEval = evaluateCoverageMapSelection(
+      americasUncoveredIds,
+      ['ve', 'cu', 'br'], // 'br' is Official -> false alarm; 'py' & 'ht' missed
+      americasPool
+    );
+    expect(uncoveredEval.perfect).toBe(false);
+    expect(uncoveredEval.correctCountryIds.sort()).toEqual(['cu', 've']);
+    expect(uncoveredEval.missedCountryIds).toEqual(
+      expect.arrayContaining(['py', 'gy', 'hn'])
+    );
+    expect(uncoveredEval.incorrectCountryIds).toEqual(['br']);
+  });
+
+  it('tracks Coverage Mastery State progression (Unseen -> Learning -> Recognized -> Mastered) and supports Guided Breakdown with D=2 spaced follow-ups', async () => {
+    const initialBreakdown = store.getSectionMasteryBreakdown('coverage');
+    expect(initialBreakdown.unseen).toBe(145);
+    expect(initialBreakdown.mastered).toBe(0);
+
+    engine.startCoverageSession({
+      focusId: 'Europe',
+      drillMode: 'tier-speed',
+    });
+
+    // Request Guided Breakdown on first Coverage trial
+    const firstTrial = engine.getCurrentTrial()!;
+    const targetSkillId = firstTrial.skillId;
+    const targetCountry = firstTrial.coveragePrompt!.targetCountry;
+    const breakdown = engine.requestGuidedBreakdown();
+    expect(breakdown.assisted).toBe(true);
+    expect(breakdown.queuedFollowUps).toBe(2);
+    expect(breakdown.coverageTier).toBe(targetCountry.coverageTier);
+    expect(breakdown.coverageNote).toBe(targetCountry.coverageNote);
+    expect(breakdown.distractorEliminations.length).toBe(2);
+
+    // Submitting after Guided Breakdown records assisted: true -> Mastery State transitions to 'learning'
+    const assistedFeedback = await engine.submitCoverageAnswer(
+      `tier:${targetCountry.coverageTier}`,
+      1800
+    );
+    expect(assistedFeedback.assisted).toBe(true);
+    expect(assistedFeedback.newMastery).toBe('learning');
+
+    const afterLearning = store.getSectionMasteryBreakdown('coverage');
+    expect(afterLearning.learning).toBe(1);
+    expect(afterLearning.unseen).toBe(144);
+
+    // Weakest learning skills on Dashboard should include this Coverage skill
+    const weakest = getWeakestLearningSkills(store.getState(), 10);
+    expect(weakest.some((w) => w.skillId === targetSkillId && w.section === 'coverage')).toBe(
+      true
+    );
+
+    // Advance 2 intervening trials (D=2) and verify the unassisted follow-up is delivered
+    const i1 = engine.nextTrial();
+    expect(i1.skillId).not.toBe(targetSkillId);
+    await engine.submitCoverageAnswer(
+      `tier:${i1.coveragePrompt!.targetCountry.coverageTier}`,
+      1500
+    );
+
+    const i2 = engine.nextTrial();
+    expect(i2.skillId).not.toBe(targetSkillId);
+    await engine.submitCoverageAnswer(
+      `tier:${i2.coveragePrompt!.targetCountry.coverageTier}`,
+      1500
+    );
+
+    const followUp1 = engine.nextTrial();
+    expect(followUp1.skillId).toBe(targetSkillId);
+    expect(followUp1.isFollowUp).toBe(true);
+
+    // Now record 4 consecutive unaided accurate but non-fluent attempts (4200ms > 3500ms) for 'cov:ng' -> reaches 'recognized'
+    const ngAttempts: Array<{
+      timestamp: number;
+      correct: boolean;
+      responseTimeMs: number;
+      assisted: boolean;
+      chosenSkillId: string;
+      sampleId: string;
+    }> = [];
+    for (let i = 0; i < 4; i += 1) {
+      ngAttempts.push({
+        timestamp: currentTime + i * 1000,
+        correct: true,
+        responseTimeMs: 4200,
+        assisted: false,
+        chosenSkillId: 'cov:ng',
+        sampleId: `cov-test-${i}`,
+      });
+      await store.recordAttempt({
+        section: 'coverage',
+        skillId: 'cov:ng',
+        chosenSkillId: 'cov:ng',
+        sampleId: `cov-test-${i}`,
+        correct: true,
+        responseTimeMs: 4200,
+        assisted: false,
+        mastery: calculateMasteryState(ngAttempts, 3500),
+        trialIndex: 20 + i,
+      });
+    }
+    expect(store.getState().skills['cov:ng'].mastery).toBe('recognized');
+
+    // Now record 3 consecutive fast unaided correct attempts (<3.5s) -> reaches 'mastered'
+    for (let i = 4; i < 7; i += 1) {
+      ngAttempts.push({
+        timestamp: currentTime + i * 1000,
+        correct: true,
+        responseTimeMs: 1950,
+        assisted: false,
+        chosenSkillId: 'cov:ng',
+        sampleId: `cov-test-${i}`,
+      });
+      await store.recordAttempt({
+        section: 'coverage',
+        skillId: 'cov:ng',
+        chosenSkillId: 'cov:ng',
+        sampleId: `cov-test-${i}`,
+        correct: true,
+        responseTimeMs: 1950,
+        assisted: false,
+        mastery: calculateMasteryState(ngAttempts, 3500),
+        trialIndex: 20 + i,
+      });
+    }
+    expect(store.getState().skills['cov:ng'].mastery).toBe('mastered');
+    expect(store.getSectionMasteryBreakdown('coverage').mastered).toBe(1);
   });
 });

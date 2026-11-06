@@ -8,6 +8,23 @@ export type DrivingSide = 'left' | 'right';
 
 export type WorldRegion = 'Europe' | 'Asia' | 'Oceania' | 'Africa' | 'Americas';
 
+export type CoverageFocusId =
+  | 'world'
+  | 'Europe'
+  | 'Asia'
+  | 'Africa'
+  | 'Americas'
+  | 'Oceania'
+  | 'trap-countries';
+
+export interface CoverageFocusSpec {
+  id: CoverageFocusId;
+  name: string;
+  shortName: string;
+  description: string;
+  highlightExamples: string[];
+}
+
 export type LanguageGroupId =
   | 'east-asian'
   | 'southeast-asian'

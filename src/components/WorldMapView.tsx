@@ -15,6 +15,8 @@ export interface WorldMapViewProps {
   selectedCountryIds: string[];
   onToggleCountry: (countryId: string) => void;
   evaluation?: MapSelectionEvaluation | null;
+  highlightedCoverageCountryIds?: string[];
+  showAllCoverageTiers?: boolean;
   initialRegionPreset?: MapRegionPresetId;
   activeRegionPreset?: MapRegionPresetId;
   onRegionPresetChange?: (presetId: MapRegionPresetId) => void;
@@ -22,7 +24,15 @@ export interface WorldMapViewProps {
   ariaLabel?: string;
 }
 
-type CountryVisualStatus = 'default' | 'selected' | 'correct' | 'missed' | 'incorrect';
+type CountryVisualStatus =
+  | 'default'
+  | 'selected'
+  | 'correct'
+  | 'missed'
+  | 'incorrect'
+  | 'tier-official'
+  | 'tier-limited'
+  | 'tier-none';
 
 interface EnrichedCountryGeometry extends CountryMapGeometry {
   country: PlayableCountry;
@@ -32,6 +42,8 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   selectedCountryIds,
   onToggleCountry,
   evaluation = null,
+  highlightedCoverageCountryIds = [],
+  showAllCoverageTiers = false,
   initialRegionPreset = 'world',
   activeRegionPreset: controlledPreset,
   onRegionPresetChange,
@@ -64,6 +76,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   };
 
   const selectedSet = useMemo(() => new Set(selectedCountryIds), [selectedCountryIds]);
+  const highlightedCoverageSet = useMemo(
+    () => new Set(highlightedCoverageCountryIds),
+    [highlightedCoverageCountryIds]
+  );
   const correctSet = useMemo(
     () => new Set(evaluation?.correctCountryIds ?? []),
     [evaluation]
@@ -84,6 +100,12 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
       if (incorrectSet.has(countryId)) return 'incorrect';
       return 'default';
     }
+    if (showAllCoverageTiers || highlightedCoverageSet.has(countryId)) {
+      const tier = PLAYABLE_COUNTRY_MAP[countryId]?.coverageTier;
+      if (tier === 'official') return 'tier-official';
+      if (tier === 'limited') return 'tier-limited';
+      if (tier === 'none') return 'tier-none';
+    }
     return selectedSet.has(countryId) ? 'selected' : 'default';
   };
 
@@ -97,6 +119,12 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
         return '✗ Incorrect';
       case 'selected':
         return '● Selected';
+      case 'tier-official':
+        return '● Official Coverage';
+      case 'tier-limited':
+        return '◐ Limited Coverage';
+      case 'tier-none':
+        return '○ None (No Coverage)';
       default:
         return null;
     }
@@ -105,10 +133,13 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
   const getStatusIcon = (status: CountryVisualStatus): string => {
     switch (status) {
       case 'correct':
+      case 'tier-official':
         return '✓';
       case 'missed':
-        return '!';
+      case 'tier-limited':
+        return '◐';
       case 'incorrect':
+      case 'tier-none':
         return '✗';
       case 'selected':
         return '●';
@@ -222,15 +253,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
 
         {/* Status legend (always pairs color with icon + text for accessibility) */}
         <div className="flex flex-wrap items-center gap-2.5 text-[11px] font-medium text-slate-600 dark:text-[#9AA0AA]">
-          {!evaluation ? (
-            <span className="inline-flex items-center gap-1">
-              <span
-                className="w-2.5 h-2.5 rounded-xs bg-[#0071E3] dark:bg-[#0A84FF] inline-block"
-                aria-hidden="true"
-              />
-              Selected ({selectedCountryIds.length})
-            </span>
-          ) : (
+          {evaluation ? (
             <>
               <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
                 <span
@@ -254,6 +277,38 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                 ✗ Incorrect ({evaluation.incorrectCountryIds.length})
               </span>
             </>
+          ) : showAllCoverageTiers || highlightedCoverageCountryIds.length > 0 ? (
+            <>
+              <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
+                <span
+                  className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block"
+                  aria-hidden="true"
+                />
+                ✓ Official
+              </span>
+              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                <span
+                  className="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block"
+                  aria-hidden="true"
+                />
+                ◐ Limited
+              </span>
+              <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300">
+                <span
+                  className="w-2.5 h-2.5 rounded-xs bg-rose-500 inline-block"
+                  aria-hidden="true"
+                />
+                ✗ None
+              </span>
+            </>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <span
+                className="w-2.5 h-2.5 rounded-xs bg-[#0071E3] dark:bg-[#0A84FF] inline-block"
+                aria-hidden="true"
+              />
+              Selected ({selectedCountryIds.length})
+            </span>
           )}
         </div>
       </div>
@@ -295,13 +350,13 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               if (status === 'selected') {
                 fillClass = 'fill-[#0071E3] dark:fill-[#0A84FF]';
                 strokeClass = 'stroke-white dark:stroke-slate-900';
-              } else if (status === 'correct') {
+              } else if (status === 'correct' || status === 'tier-official') {
                 fillClass = 'fill-emerald-500 dark:fill-emerald-500';
                 strokeClass = 'stroke-emerald-900 dark:stroke-emerald-200';
-              } else if (status === 'missed') {
+              } else if (status === 'missed' || status === 'tier-limited') {
                 fillClass = 'fill-amber-400 dark:fill-amber-500';
                 strokeClass = 'stroke-amber-900 dark:stroke-amber-200';
-              } else if (status === 'incorrect') {
+              } else if (status === 'incorrect' || status === 'tier-none') {
                 fillClass = 'fill-rose-500 dark:fill-rose-500';
                 strokeClass = 'stroke-rose-900 dark:stroke-rose-200';
               }
@@ -335,27 +390,39 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             })}
           </g>
 
-          {/* Evaluated Status Pin Labels on Highlighted Countries */}
-          {evaluation && (
+          {/* Evaluated Status Pin Labels or Coverage Tier Pin Labels on Highlighted Countries */}
+          {(evaluation || highlightedCoverageCountryIds.length > 0) && (
             <g data-layer="evaluation-badges" className="pointer-events-none">
-              {[
-                ...evaluation.correctCountryIds.map((id) => ({ id, status: 'correct' as const })),
-                ...evaluation.missedCountryIds.map((id) => ({ id, status: 'missed' as const })),
-                ...evaluation.incorrectCountryIds.map((id) => ({
-                  id,
-                  status: 'incorrect' as const,
-                })),
-              ].map(({ id, status }) => {
+              {(evaluation
+                ? [
+                    ...evaluation.correctCountryIds.map((id) => ({
+                      id,
+                      status: 'correct' as const,
+                    })),
+                    ...evaluation.missedCountryIds.map((id) => ({
+                      id,
+                      status: 'missed' as const,
+                    })),
+                    ...evaluation.incorrectCountryIds.map((id) => ({
+                      id,
+                      status: 'incorrect' as const,
+                    })),
+                  ]
+                : highlightedCoverageCountryIds.map((id) => ({
+                    id,
+                    status: getCountryStatus(id),
+                  }))
+              ).map(({ id, status }) => {
                 const geom = COUNTRY_MAP_GEOMETRIES[id];
                 const country = PLAYABLE_COUNTRY_MAP[id];
-                if (!geom || country?.isTerritory) return null;
+                if (!geom || country?.isTerritory || status === 'default') return null;
                 const [cx, cy] = geom.centerSvg;
                 const r = Math.max(3.2, 6.5 * zoomRatio);
                 const fontSize = Math.max(2.6, 5.2 * zoomRatio);
                 const badgeFill =
-                  status === 'correct'
+                  status === 'correct' || status === 'tier-official'
                     ? '#059669'
-                    : status === 'missed'
+                    : status === 'missed' || status === 'tier-limited'
                       ? '#D97706'
                       : '#E11D48';
                 return (
@@ -402,15 +469,15 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                 pillFill = '#0071E3';
                 pillStroke = '#FFFFFF';
                 pillText = '#FFFFFF';
-              } else if (status === 'correct') {
+              } else if (status === 'correct' || status === 'tier-official') {
                 pillFill = '#10B981';
                 pillStroke = '#064E3B';
                 pillText = '#FFFFFF';
-              } else if (status === 'missed') {
+              } else if (status === 'missed' || status === 'tier-limited') {
                 pillFill = '#F59E0B';
                 pillStroke = '#78350F';
                 pillText = '#FFFFFF';
-              } else if (status === 'incorrect') {
+              } else if (status === 'incorrect' || status === 'tier-none') {
                 pillFill = '#F43F5E';
                 pillStroke = '#881337';
                 pillText = '#FFFFFF';
@@ -493,7 +560,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                   Territory / Microstate Pill
                 </span>
               )}
-              {evaluation && (
+              {(evaluation || showAllCoverageTiers || highlightedCoverageCountryIds.length > 0) && (
                 <span className="text-[11px] text-slate-500 dark:text-[#9AA0AA]">
                   Coverage: <strong className="uppercase">{hoveredCountry.coverageTier}</strong>
                 </span>
@@ -538,13 +605,13 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             if (status === 'selected') {
               pillStyle =
                 'bg-[#0071E3] dark:bg-[#0A84FF] text-white border-[#0071E3] dark:border-[#0A84FF]';
-            } else if (status === 'correct') {
+            } else if (status === 'correct' || status === 'tier-official') {
               pillStyle =
                 'bg-emerald-600 text-white border-emerald-700 dark:bg-emerald-600 dark:border-emerald-400';
-            } else if (status === 'missed') {
+            } else if (status === 'missed' || status === 'tier-limited') {
               pillStyle =
                 'bg-amber-500 text-slate-950 border-amber-700 dark:bg-amber-500 dark:text-slate-950 dark:border-amber-300';
-            } else if (status === 'incorrect') {
+            } else if (status === 'incorrect' || status === 'tier-none') {
               pillStyle =
                 'bg-rose-600 text-white border-rose-700 dark:bg-rose-600 dark:border-rose-400';
             }
@@ -587,7 +654,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
 
       {/* Accessible Country Quick-Filter & Keyboard Selection Tray */}
       <div className="px-3.5 py-2.5 border-t border-slate-200 dark:border-[#242830] bg-white dark:bg-[#14161A]">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <search className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <label
             htmlFor="world-map-country-filter"
             className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-[#9AA0AA]"
@@ -602,7 +669,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             placeholder="Filter countries by name or code..."
             className="text-xs px-2.5 py-1 rounded-md border border-slate-200 dark:border-[#242830] bg-[#F5F5F7] dark:bg-[#0B0C0E] text-slate-900 dark:text-[#F3F4F6] focus:outline-2 focus:outline-[#0071E3] w-56"
           />
-        </div>
+        </search>
         <div
           className="flex flex-wrap gap-1 max-h-28 overflow-y-auto pr-1"
           role="group"
@@ -618,11 +685,11 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             if (status === 'selected') {
               chipClass =
                 'bg-[#0071E3] dark:bg-[#0A84FF] text-white border-[#0071E3] dark:border-[#0A84FF]';
-            } else if (status === 'correct') {
+            } else if (status === 'correct' || status === 'tier-official') {
               chipClass = 'bg-emerald-600 text-white border-emerald-700';
-            } else if (status === 'missed') {
+            } else if (status === 'missed' || status === 'tier-limited') {
               chipClass = 'bg-amber-500 text-slate-950 border-amber-700 font-semibold';
-            } else if (status === 'incorrect') {
+            } else if (status === 'incorrect' || status === 'tier-none') {
               chipClass = 'bg-rose-600 text-white border-rose-700';
             }
 

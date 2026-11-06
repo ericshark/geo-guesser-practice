@@ -1,12 +1,17 @@
 import {
+  COVERAGE_FOCUS_MAP,
   findTellMatchesInSample,
   getCandidateCountriesForLanguage,
+  getCountriesForCoverageFocus,
   getLanguagesForGroupSelection,
   inferBestRegionPresetForCountries,
   LANGUAGE_GROUP_MAP,
   LANGUAGE_MAP,
   LANGUAGES,
+  PLAYABLE_COUNTRIES,
   PLAYABLE_COUNTRY_MAP,
+  type CoverageFocusId,
+  type CoverageTier,
   type LanguageGroupId,
   type LanguageGroupSelectionId,
   type LanguageSample,
@@ -263,6 +268,46 @@ export interface LanguageSessionConfig {
   drillMode?: LanguageDrillMode;
 }
 
+export type CoverageDrillMode =
+  | 'mixed'
+  | 'tier-speed'
+  | 'regional-map'
+  | 'neighbor-cluster';
+
+export type CoverageMapTargetFilter = 'covered' | 'uncovered' | 'limited';
+
+export interface CoverageSessionConfig {
+  focusId: CoverageFocusId;
+  drillMode?: CoverageDrillMode;
+}
+
+export interface RegionalCoverageNote {
+  countryId: string;
+  countryName: string;
+  region: string;
+  subregion: string;
+  coverageTier: CoverageTier;
+  coverageNote: string;
+  isTrapCountry?: boolean;
+}
+
+export interface CoverageTrialPrompt {
+  focusId: CoverageFocusId;
+  focusLabel: string;
+  drillKind: 'coverage-tier' | 'coverage-cluster' | 'coverage-map';
+  targetCountry: PlayableCountry;
+  promptTitle: string;
+  promptDescription: string;
+  suggestedRegionPreset: MapRegionPresetId;
+  clusterName?: string;
+  clusterCountries?: PlayableCountry[];
+  targetTierQuestion?: CoverageTier;
+  mapTargetFilter?: CoverageMapTargetFilter;
+  mapRegionLabel?: string;
+  regionPoolCountries?: PlayableCountry[];
+  expectedCountryIds?: string[];
+}
+
 export interface ContrastCardLanguageEntry {
   id: string;
   skillId: string;
@@ -299,7 +344,10 @@ export type LanguageTrialKind =
   | 'sample-recognition'
   | 'tell-recognition'
   | 'triggered-contrast'
-  | 'country-bridge';
+  | 'country-bridge'
+  | 'coverage-tier'
+  | 'coverage-cluster'
+  | 'coverage-map';
 
 export interface CountryBridgePrompt {
   languageId: string;
@@ -374,14 +422,20 @@ export interface GuidedBreakdown {
   distractorEliminations: DistractorElimination[];
   candidateCountries: PlayableCountry[];
   uncoveredCountryNotes: string[];
+  countryId?: string;
+  country?: PlayableCountry;
+  coverageTier?: CoverageTier;
+  coverageNote?: string;
+  regionalLimitedNotes?: RegionalCoverageNote[];
   assisted: true;
   queuedFollowUps: number;
 }
 
 export interface PracticeTrial {
   trialNumber: number;
+  section?: SectionId;
   kind: LanguageTrialKind;
-  skillId: string; // e.g., 'lang:cs'
+  skillId: string; // e.g., 'lang:cs' or 'cov:ng'
   contrastedSkillId?: string; // e.g., 'lang:sk' when kind === 'triggered-contrast'
   languageId: string;
   groupName: string;
@@ -395,6 +449,9 @@ export interface PracticeTrial {
   };
   triggeredContrast?: TriggeredContrastCard;
   bridgePrompt?: CountryBridgePrompt;
+  countryId?: string;
+  country?: PlayableCountry;
+  coveragePrompt?: CoverageTrialPrompt;
   assisted?: boolean;
   isFollowUp?: boolean;
   options: TrialOption[];
@@ -406,6 +463,28 @@ export interface ChosenLanguageContrast {
   languageName: string;
   contrastNote: string;
   keyTells: Array<{ pattern: string; label: string }>;
+}
+
+export interface CoverageTrialFeedback {
+  correct: boolean;
+  assisted: boolean;
+  skillId: string; // 'cov:<countryId>'
+  countryId: string;
+  countryName: string;
+  country: PlayableCountry;
+  coverageTier: CoverageTier;
+  coverageNote: string;
+  chosenOptionId: string;
+  chosenLabel: string;
+  responseTimeMs: number;
+  fluencyTargetMs: number;
+  isFluentSpeed: boolean;
+  previousMastery: MasteryState;
+  newMastery: MasteryState;
+  mapHighlightedCountryIds: string[];
+  regionalLimitedNotes: RegionalCoverageNote[];
+  trapCountryNotes: RegionalCoverageNote[];
+  mapEvaluation?: MapSelectionEvaluation;
 }
 
 export interface LanguageTrialFeedback {
@@ -434,6 +513,14 @@ export interface LanguageTrialFeedback {
   triggeredContrastQueued?: boolean;
   bridgeQueued?: boolean;
   mapEvaluation?: MapSelectionEvaluation;
+  countryId?: string;
+  country?: PlayableCountry;
+  coverageTier?: CoverageTier;
+  coverageNote?: string;
+  regionalLimitedNotes?: RegionalCoverageNote[];
+  trapCountryNotes?: RegionalCoverageNote[];
+  mapHighlightedCountryIds?: string[];
+  coverageFeedback?: CoverageTrialFeedback;
 }
 
 export interface SessionStats {
@@ -495,18 +582,84 @@ export function evaluateCountryBridgeSelection(
   };
 }
 
+export function evaluateCoverageMapSelection(
+  expectedCountryIds: string[],
+  selectedCountryIds: string[],
+  regionPoolCountries?: PlayableCountry[]
+): MapSelectionEvaluation {
+  const normalizedExpected = Array.from(
+    new Set(expectedCountryIds.map((id) => id.trim().toLowerCase()).filter(Boolean))
+  );
+  const expectedSet = new Set(normalizedExpected);
+  const uniqueSelected = Array.from(
+    new Set(selectedCountryIds.map((id) => id.trim().toLowerCase()).filter(Boolean))
+  );
+  const selectedSet = new Set(uniqueSelected);
+
+  const correctCountryIds = uniqueSelected.filter((id) => expectedSet.has(id));
+  const missedCountryIds = normalizedExpected.filter((id) => !selectedSet.has(id));
+  const incorrectCountryIds = uniqueSelected.filter((id) => !expectedSet.has(id));
+  const incorrectUncoveredCountryIds = incorrectCountryIds.filter(
+    (id) => PLAYABLE_COUNTRY_MAP[id]?.coverageTier === 'none'
+  );
+
+  const toCountries = (ids: string[]): PlayableCountry[] =>
+    ids
+      .map((id) => PLAYABLE_COUNTRY_MAP[id])
+      .filter((c): c is PlayableCountry => Boolean(c));
+
+  const poolForNotes =
+    regionPoolCountries ??
+    toCountries([...normalizedExpected, ...incorrectCountryIds]);
+
+  const uncoveredCountryNotes = poolForNotes
+    .filter((c) => c.coverageTier === 'none' || c.isTrapCountry)
+    .slice(0, 6)
+    .map((c) => `${c.name}: ${c.coverageNote}`);
+
+  return {
+    selectedCountryIds: uniqueSelected,
+    expectedCountryIds: normalizedExpected,
+    correctCountryIds,
+    missedCountryIds,
+    incorrectCountryIds,
+    incorrectUncoveredCountryIds,
+    correctCountries: toCountries(correctCountryIds),
+    missedCountries: toCountries(missedCountryIds),
+    incorrectCountries: toCountries(incorrectCountryIds),
+    uncoveredCountryNotes,
+    perfect: missedCountryIds.length === 0 && incorrectCountryIds.length === 0,
+  };
+}
+
+function toRegionalCoverageNote(country: PlayableCountry): RegionalCoverageNote {
+  return {
+    countryId: country.id,
+    countryName: country.name,
+    region: country.region,
+    subregion: country.subregion,
+    coverageTier: country.coverageTier,
+    coverageNote: country.coverageNote,
+    isTrapCountry: country.isTrapCountry,
+  };
+}
+
 export class PracticeEngine {
   private store: ProgressStore;
   private now: () => number;
   private rng: () => number;
 
+  private activeSection: SectionId = 'languages';
   private activeGroupSelection: LanguageGroupSelectionId = 'east-asian';
   private drillMode: LanguageDrillMode = 'mixed';
+  private activeCoverageFocus: CoverageFocusId = 'world';
+  private coverageDrillMode: CoverageDrillMode = 'mixed';
   private stage0Prime: ContrastCardPrime | null = null;
   private currentTrial: PracticeTrial | null = null;
   private currentTrialAssisted = false;
   private activeGuidedBreakdown: GuidedBreakdown | null = null;
   private lastFeedback: LanguageTrialFeedback | null = null;
+  private lastCoverageFeedback: CoverageTrialFeedback | null = null;
 
   private sessionTrialCounter = 0;
   private sessionLastPresentedAt = new Map<string, number>();
@@ -541,6 +694,7 @@ export class PracticeEngine {
   }
 
   startLanguageSession(config: LanguageSessionConfig): void {
+    this.activeSection = 'languages';
     this.activeGroupSelection = config.groupId;
     this.drillMode = config.drillMode ?? 'mixed';
     this.sessionTrialCounter = 0;
@@ -558,6 +712,7 @@ export class PracticeEngine {
     this.currentTrialAssisted = false;
     this.activeGuidedBreakdown = null;
     this.lastFeedback = null;
+    this.lastCoverageFeedback = null;
     this.sessionStats = {
       trialsCompleted: 0,
       correctCount: 0,
@@ -611,6 +766,49 @@ export class PracticeEngine {
       drillMode,
     });
     return this.currentTrial!;
+  }
+
+  startCoverageSession(config: CoverageSessionConfig): PracticeTrial {
+    this.activeSection = 'coverage';
+    this.activeCoverageFocus = config.focusId;
+    this.coverageDrillMode = config.drillMode ?? 'mixed';
+    this.stage0Prime = null;
+    this.sessionTrialCounter = 0;
+    this.sessionLastPresentedAt.clear();
+    this.followUpQueue = [];
+    this.pendingContrastQueue = [];
+    this.pendingBridgeQueue = [];
+    this.sessionBridgedLangs.clear();
+    this.pairConfusionsSinceTrigger.clear();
+    this.sessionPairBoostBySkill.clear();
+    this.currentTrial = null;
+    this.currentTrialAssisted = false;
+    this.activeGuidedBreakdown = null;
+    this.lastFeedback = null;
+    this.lastCoverageFeedback = null;
+    this.sessionStats = {
+      trialsCompleted: 0,
+      correctCount: 0,
+      fluentCount: 0,
+      averageResponseTimeMs: 0,
+    };
+    return this.nextTrial();
+  }
+
+  getActiveSection(): SectionId {
+    return this.activeSection;
+  }
+
+  getActiveCoverageFocus(): CoverageFocusId {
+    return this.activeCoverageFocus;
+  }
+
+  getCoverageDrillMode(): CoverageDrillMode {
+    return this.coverageDrillMode;
+  }
+
+  getLastCoverageFeedback(): CoverageTrialFeedback | null {
+    return this.lastCoverageFeedback;
   }
 
   getActiveGroupSelection(): LanguageGroupSelectionId {
@@ -688,6 +886,15 @@ export class PracticeEngine {
 
     this.currentTrialAssisted = true;
     trial.assisted = true;
+
+    if (
+      trial.section === 'coverage' ||
+      trial.kind === 'coverage-tier' ||
+      trial.kind === 'coverage-cluster' ||
+      trial.kind === 'coverage-map'
+    ) {
+      return this.buildCoverageGuidedBreakdown(trial);
+    }
 
     const targetLanguage = LANGUAGE_MAP[trial.languageId];
     const matchedTells = findTellMatchesInSample(trial.sample, targetLanguage);
@@ -784,8 +991,13 @@ export class PracticeEngine {
   nextTrial(): PracticeTrial {
     this.sessionTrialCounter += 1;
     this.lastFeedback = null;
+    this.lastCoverageFeedback = null;
     this.currentTrialAssisted = false;
     this.activeGuidedBreakdown = null;
+
+    if (this.activeSection === 'coverage') {
+      return this.nextCoverageTrial();
+    }
 
     // 1. Check if a Stage 2 Triggered Contrast Card is pending
     if (this.pendingContrastQueue.length > 0) {
@@ -909,6 +1121,27 @@ export class PracticeEngine {
         .map((s) => s.trim())
         .filter(Boolean);
       return this.submitCountryBridgeAnswer(parsedIds, explicitResponseTimeMs);
+    }
+
+    if (trial.kind === 'coverage-map') {
+      const parsedIds = chosenOptionId
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const covFeedback = await this.submitCoverageMapAnswer(
+        parsedIds,
+        explicitResponseTimeMs
+      );
+      return this.lastFeedback!;
+    }
+
+    if (
+      trial.section === 'coverage' ||
+      trial.kind === 'coverage-tier' ||
+      trial.kind === 'coverage-cluster'
+    ) {
+      await this.submitCoverageAnswer(chosenOptionId, explicitResponseTimeMs);
+      return this.lastFeedback!;
     }
 
     const responseTimeMs =
@@ -1510,5 +1743,880 @@ export class PracticeEngine {
       sublabel: lang.nativeName,
       shortcutKey: idx + 1 + rngOffset,
     }));
+  }
+
+  // ===========================================================================
+  // COVERAGE SECTION (Official vs Limited vs None Drills & Regional Map Quizzes)
+  // ===========================================================================
+
+  async submitCoverageAnswer(
+    chosenOptionId: string,
+    explicitResponseTimeMs?: number
+  ): Promise<CoverageTrialFeedback> {
+    const trial = this.currentTrial;
+    if (!trial || (trial.kind !== 'coverage-tier' && trial.kind !== 'coverage-cluster')) {
+      throw new Error('No active Coverage classification/cluster trial to submit an answer for.');
+    }
+
+    const targetCountry =
+      trial.country ??
+      PLAYABLE_COUNTRY_MAP[trial.countryId ?? trial.skillId.replace(/^cov:/, '')];
+    if (!targetCountry) {
+      throw new Error(`Unknown PlayableCountry for Coverage skill ${trial.skillId}`);
+    }
+
+    const responseTimeMs =
+      explicitResponseTimeMs ?? Math.max(100, this.now() - trial.startedAtMs);
+    const normalizedChoice = chosenOptionId.trim().toLowerCase();
+
+    const correct =
+      trial.kind === 'coverage-tier'
+        ? normalizedChoice === `tier:${targetCountry.coverageTier}` ||
+          normalizedChoice === targetCountry.coverageTier ||
+          normalizedChoice === trial.skillId.toLowerCase()
+        : normalizedChoice === trial.skillId.toLowerCase() ||
+          normalizedChoice === targetCountry.id.toLowerCase();
+
+    const assisted = this.currentTrialAssisted || Boolean(trial.assisted);
+
+    const state = this.store.getState();
+    const existingRecord = state.skills[trial.skillId];
+    const previousMastery: MasteryState = existingRecord?.mastery ?? 'unseen';
+    const existingAttempts: SkillAttempt[] = existingRecord?.attempts ?? [];
+
+    const recordedChosenSkillId = correct
+      ? trial.skillId
+      : normalizedChoice.startsWith('cov:') || normalizedChoice.startsWith('tier:')
+        ? normalizedChoice
+        : trial.kind === 'coverage-tier'
+          ? `tier:${normalizedChoice}`
+          : `cov:${normalizedChoice}`;
+
+    const simulatedAttempts: SkillAttempt[] = [
+      ...existingAttempts,
+      {
+        timestamp: this.now(),
+        correct,
+        responseTimeMs,
+        assisted,
+        chosenSkillId: recordedChosenSkillId,
+        sampleId: trial.sample.id,
+      },
+    ];
+
+    const newMastery = calculateMasteryState(
+      simulatedAttempts,
+      trial.fluencyThresholdMs
+    );
+
+    const prevTotalRt =
+      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
+    this.sessionStats.trialsCompleted += 1;
+    if (correct) {
+      this.sessionStats.correctCount += 1;
+      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
+        this.sessionStats.fluentCount += 1;
+      }
+    }
+    this.sessionStats.averageResponseTimeMs = Math.round(
+      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    );
+
+    await this.store.recordAttempt({
+      section: 'coverage',
+      skillId: trial.skillId,
+      chosenSkillId: recordedChosenSkillId,
+      sampleId: trial.sample.id,
+      correct,
+      responseTimeMs,
+      assisted,
+      mastery: newMastery,
+      trialIndex: this.sessionTrialCounter,
+      now: new Date(this.now()),
+    });
+
+    const clusterCountries = trial.coveragePrompt?.clusterCountries ?? [targetCountry];
+    const mapHighlightedCountryIds =
+      trial.kind === 'coverage-cluster'
+        ? clusterCountries.map((c) => c.id)
+        : [targetCountry.id];
+
+    const regionalLimitedNotes = this.collectRegionalLimitedNotes(
+      targetCountry,
+      clusterCountries
+    );
+    const trapCountryNotes = this.collectTrapCountryNotes(
+      targetCountry,
+      clusterCountries
+    );
+
+    const matchedOption = trial.options.find(
+      (o) =>
+        o.id.toLowerCase() === normalizedChoice ||
+        o.languageId.toLowerCase() === normalizedChoice
+    );
+    const chosenLabel = matchedOption?.label ?? chosenOptionId;
+
+    const covFeedback: CoverageTrialFeedback = {
+      correct,
+      assisted,
+      skillId: trial.skillId,
+      countryId: targetCountry.id,
+      countryName: targetCountry.name,
+      country: targetCountry,
+      coverageTier: targetCountry.coverageTier,
+      coverageNote: targetCountry.coverageNote,
+      chosenOptionId: recordedChosenSkillId,
+      chosenLabel,
+      responseTimeMs,
+      fluencyTargetMs: trial.fluencyThresholdMs,
+      isFluentSpeed: correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      previousMastery,
+      newMastery,
+      mapHighlightedCountryIds,
+      regionalLimitedNotes,
+      trapCountryNotes,
+    };
+
+    this.lastCoverageFeedback = covFeedback;
+    this.lastFeedback = this.toUnifiedLanguageTrialFeedback(trial, covFeedback);
+    return covFeedback;
+  }
+
+  async submitCoverageMapAnswer(
+    selectedCountryIds: string[],
+    explicitResponseTimeMs?: number
+  ): Promise<CoverageTrialFeedback> {
+    const trial = this.currentTrial;
+    if (!trial || trial.kind !== 'coverage-map' || !trial.coveragePrompt) {
+      throw new Error('No active Coverage regional map trial to submit selections for.');
+    }
+
+    const prompt = trial.coveragePrompt;
+    const targetCountry = prompt.targetCountry;
+    const expectedCountryIds = prompt.expectedCountryIds ?? [targetCountry.id];
+    const regionPool = prompt.regionPoolCountries ?? [targetCountry];
+
+    const mapEvaluation = evaluateCoverageMapSelection(
+      expectedCountryIds,
+      selectedCountryIds,
+      regionPool
+    );
+
+    const responseTimeMs =
+      explicitResponseTimeMs ?? Math.max(100, this.now() - trial.startedAtMs);
+    const correct = mapEvaluation.perfect;
+    const assisted = this.currentTrialAssisted || Boolean(trial.assisted);
+
+    const state = this.store.getState();
+    const existingRecord = state.skills[trial.skillId];
+    const previousMastery: MasteryState = existingRecord?.mastery ?? 'unseen';
+    const existingAttempts: SkillAttempt[] = existingRecord?.attempts ?? [];
+
+    const chosenSkillId = correct
+      ? trial.skillId
+      : `map:${mapEvaluation.selectedCountryIds.join(',') || 'none'}`;
+
+    const simulatedAttempts: SkillAttempt[] = [
+      ...existingAttempts,
+      {
+        timestamp: this.now(),
+        correct,
+        responseTimeMs,
+        assisted,
+        chosenSkillId,
+        sampleId: trial.sample.id,
+      },
+    ];
+
+    const newMastery = calculateMasteryState(
+      simulatedAttempts,
+      trial.fluencyThresholdMs
+    );
+
+    const prevTotalRt =
+      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
+    this.sessionStats.trialsCompleted += 1;
+    if (correct) {
+      this.sessionStats.correctCount += 1;
+      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
+        this.sessionStats.fluentCount += 1;
+      }
+    }
+    this.sessionStats.averageResponseTimeMs = Math.round(
+      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    );
+
+    await this.store.recordAttempt({
+      section: 'coverage',
+      skillId: trial.skillId,
+      chosenSkillId,
+      sampleId: trial.sample.id,
+      correct,
+      responseTimeMs,
+      assisted,
+      mastery: newMastery,
+      trialIndex: this.sessionTrialCounter,
+      now: new Date(this.now()),
+    });
+
+    const regionalLimitedNotes = this.collectRegionalLimitedNotes(
+      targetCountry,
+      regionPool
+    );
+    const trapCountryNotes = this.collectTrapCountryNotes(
+      targetCountry,
+      regionPool
+    );
+
+    const covFeedback: CoverageTrialFeedback = {
+      correct,
+      assisted,
+      skillId: trial.skillId,
+      countryId: targetCountry.id,
+      countryName: targetCountry.name,
+      country: targetCountry,
+      coverageTier: targetCountry.coverageTier,
+      coverageNote: targetCountry.coverageNote,
+      chosenOptionId: mapEvaluation.selectedCountryIds.join(','),
+      chosenLabel:
+        mapEvaluation.selectedCountryIds.length > 0
+          ? mapEvaluation.selectedCountryIds
+              .map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id)
+              .join(', ')
+          : 'None selected',
+      responseTimeMs,
+      fluencyTargetMs: trial.fluencyThresholdMs,
+      isFluentSpeed: correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      previousMastery,
+      newMastery,
+      mapHighlightedCountryIds: expectedCountryIds,
+      regionalLimitedNotes,
+      trapCountryNotes,
+      mapEvaluation,
+    };
+
+    this.lastCoverageFeedback = covFeedback;
+    this.lastFeedback = this.toUnifiedLanguageTrialFeedback(trial, covFeedback);
+    return covFeedback;
+  }
+
+  private buildCoverageGuidedBreakdown(trial: PracticeTrial): GuidedBreakdown {
+    const targetCountry =
+      trial.country ??
+      PLAYABLE_COUNTRY_MAP[trial.countryId ?? trial.skillId.replace(/^cov:/, '')] ??
+      PLAYABLE_COUNTRIES[0];
+
+    const existingQueuedForSkill = this.followUpQueue.filter(
+      (q) => q.skillId === trial.skillId
+    ).length;
+    const toEnqueue = Math.max(
+      0,
+      Math.min(GUIDED_BREAKDOWN_FOLLOW_UP_COUNT, 3 - existingQueuedForSkill)
+    );
+
+    for (let i = 0; i < toEnqueue; i++) {
+      this.followUpQueue.push({
+        skillId: trial.skillId,
+        languageId: targetCountry.id,
+        queuedAtTrial: this.sessionTrialCounter,
+      });
+    }
+
+    const distractorEliminations: DistractorElimination[] = [];
+    if (trial.kind === 'coverage-tier') {
+      const expectedOptionId = `tier:${targetCountry.coverageTier}`;
+      for (const opt of trial.options) {
+        if (opt.id === expectedOptionId) continue;
+        const reason =
+          opt.languageId === 'official'
+            ? `Ruled out: ${targetCountry.name} does not have broad nationwide Official coverage (${targetCountry.coverageTier.toUpperCase()} — ${targetCountry.coverageNote})`
+            : opt.languageId === 'limited'
+              ? `Ruled out: ${targetCountry.name} is ${targetCountry.coverageTier.toUpperCase()}, not Limited (${targetCountry.coverageNote})`
+              : `Ruled out: ${targetCountry.name} is playable in Street View (${targetCountry.coverageTier.toUpperCase()} — ${targetCountry.coverageNote})`;
+        distractorEliminations.push({
+          optionId: opt.id,
+          languageId: opt.languageId,
+          languageName: `${opt.label} Coverage Tier`,
+          nativeName: opt.sublabel,
+          reason,
+          expectedTellsMissing: [],
+        });
+      }
+    } else if (trial.kind === 'coverage-cluster') {
+      for (const opt of trial.options) {
+        if (opt.id === trial.skillId) continue;
+        const distCountry = PLAYABLE_COUNTRY_MAP[opt.languageId];
+        distractorEliminations.push({
+          optionId: opt.id,
+          languageId: opt.languageId,
+          languageName: distCountry?.name ?? opt.label,
+          nativeName: distCountry
+            ? `${distCountry.coverageTier.toUpperCase()} Coverage`
+            : opt.sublabel,
+          reason: distCountry
+            ? `Ruled out: ${distCountry.name} has ${distCountry.coverageTier.toUpperCase()} coverage (${distCountry.coverageNote})`
+            : `Does not match the target Coverage Tier for this cluster.`,
+          expectedTellsMissing: [],
+        });
+      }
+    }
+
+    const contextCountries =
+      trial.coveragePrompt?.clusterCountries ??
+      trial.coveragePrompt?.regionPoolCountries ??
+      [targetCountry];
+    const coveredCandidates =
+      trial.kind === 'coverage-map' && trial.coveragePrompt?.expectedCountryIds
+        ? trial.coveragePrompt.expectedCountryIds
+            .map((id) => PLAYABLE_COUNTRY_MAP[id])
+            .filter((c): c is PlayableCountry => Boolean(c))
+        : contextCountries.filter((c) => c.coverageTier !== 'none');
+
+    const uncoveredNotes = contextCountries
+      .filter((c) => c.coverageTier === 'none' || c.isTrapCountry)
+      .map((c) => `${c.name} (${c.coverageTier.toUpperCase()}): ${c.coverageNote}`);
+
+    const regionalLimitedNotes = this.collectRegionalLimitedNotes(
+      targetCountry,
+      contextCountries
+    );
+
+    const breakdown: GuidedBreakdown = {
+      skillId: trial.skillId,
+      languageId: targetCountry.id,
+      languageName: targetCountry.name,
+      nativeName: `${targetCountry.coverageTier.toUpperCase()} Coverage · ${targetCountry.region}`,
+      script: targetCountry.subregion,
+      sample: trial.sample,
+      translation: targetCountry.coverageNote,
+      matchedTells: [],
+      structuralClue: `${targetCountry.name} has ${targetCountry.coverageTier.toUpperCase()} Street View coverage: ${targetCountry.coverageNote}`,
+      gestaltNote: targetCountry.coverageNote,
+      contrastNote:
+        uncoveredNotes.length > 0
+          ? uncoveredNotes.slice(0, 3).join(' · ')
+          : `${targetCountry.name} (${targetCountry.coverageTier.toUpperCase()}): ${targetCountry.coverageNote}`,
+      distractorEliminations,
+      candidateCountries:
+        coveredCandidates.length > 0 ? coveredCandidates : [targetCountry],
+      uncoveredCountryNotes: uncoveredNotes,
+      countryId: targetCountry.id,
+      country: targetCountry,
+      coverageTier: targetCountry.coverageTier,
+      coverageNote: targetCountry.coverageNote,
+      regionalLimitedNotes,
+      assisted: true,
+      queuedFollowUps: this.getQueuedFollowUpCount(trial.skillId),
+    };
+
+    this.activeGuidedBreakdown = breakdown;
+    return breakdown;
+  }
+
+  private nextCoverageTrial(): PracticeTrial {
+    // 1. Check if any Guided Breakdown follow-up item has satisfied the D = 2 spacing delay
+    const eligibleFollowUpIdx = this.followUpQueue.findIndex((item) => {
+      const lastSeen = this.sessionLastPresentedAt.get(item.skillId);
+      const trialsSinceLastSeen =
+        lastSeen !== undefined ? this.sessionTrialCounter - lastSeen : 999;
+      return trialsSinceLastSeen > ARTS_SPACING_DELAY;
+    });
+
+    let targetCountry: PlayableCountry;
+    let isFollowUp = false;
+
+    if (eligibleFollowUpIdx !== -1) {
+      const followUp = this.followUpQueue.splice(eligibleFollowUpIdx, 1)[0];
+      const countryId = followUp.skillId.replace(/^cov:/, '');
+      targetCountry =
+        PLAYABLE_COUNTRY_MAP[countryId] ??
+        getCountriesForCoverageFocus(this.activeCoverageFocus)[0];
+      isFollowUp = true;
+    } else {
+      const pool = getCountriesForCoverageFocus(this.activeCoverageFocus);
+      targetCountry = this.selectNextCoverageCountryByArts(pool);
+    }
+
+    const skillId = `cov:${targetCountry.id}`;
+    this.sessionLastPresentedAt.set(skillId, this.sessionTrialCounter);
+
+    let drillKind: 'coverage-tier' | 'coverage-cluster' | 'coverage-map';
+    if (this.coverageDrillMode === 'tier-speed') {
+      drillKind = 'coverage-tier';
+    } else if (this.coverageDrillMode === 'regional-map') {
+      drillKind = 'coverage-map';
+    } else if (this.coverageDrillMode === 'neighbor-cluster') {
+      drillKind = 'coverage-cluster';
+    } else {
+      // 'mixed' mode: interleave speed tier classification, neighbor cluster trap drills, and regional map drills
+      if (isFollowUp) {
+        drillKind = 'coverage-tier';
+      } else if (this.sessionTrialCounter % 4 === 0) {
+        drillKind = 'coverage-map';
+      } else if (this.sessionTrialCounter % 3 === 0) {
+        drillKind = 'coverage-cluster';
+      } else {
+        drillKind = 'coverage-tier';
+      }
+    }
+
+    if (drillKind === 'coverage-map') {
+      this.currentTrial = this.buildCoverageMapTrial(targetCountry, isFollowUp);
+    } else if (drillKind === 'coverage-cluster') {
+      this.currentTrial = this.buildCoverageClusterTrial(targetCountry, isFollowUp);
+    } else {
+      this.currentTrial = this.buildCoverageTierTrial(targetCountry, isFollowUp);
+    }
+
+    return this.currentTrial;
+  }
+
+  private buildCoverageTierTrial(
+    country: PlayableCountry,
+    isFollowUp: boolean
+  ): PracticeTrial {
+    const skillId = `cov:${country.id}`;
+    const focusSpec = COVERAGE_FOCUS_MAP[this.activeCoverageFocus];
+    const suggestedRegionPreset = inferBestRegionPresetForCountries([country]);
+
+    const options: TrialOption[] = [
+      {
+        id: 'tier:official',
+        languageId: 'official',
+        label: 'Official',
+        sublabel: 'Broad road Street View coverage',
+        shortcutKey: 1,
+      },
+      {
+        id: 'tier:limited',
+        languageId: 'limited',
+        label: 'Limited',
+        sublabel: 'Specific regions, select cities, or trekker-only',
+        shortcutKey: 2,
+      },
+      {
+        id: 'tier:none',
+        languageId: 'none',
+        label: 'None',
+        sublabel: 'No playable Street View road coverage',
+        shortcutKey: 3,
+      },
+    ];
+
+    const sample: LanguageSample = {
+      id: `cov-tier-${country.id}`,
+      text: `${country.name} (${country.subregion}, ${country.region} · ${country.tld})`,
+      translation: country.coverageNote,
+      kind: 'sign',
+      tellIds: [],
+      structuralClue: country.coverageNote,
+    };
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      section: 'coverage',
+      kind: 'coverage-tier',
+      skillId,
+      languageId: country.id,
+      countryId: country.id,
+      country,
+      groupName: `Coverage · ${focusSpec.name}`,
+      fluencyThresholdMs: LANGUAGE_FLUENCY_THRESHOLD_MS,
+      sample,
+      coveragePrompt: {
+        focusId: this.activeCoverageFocus,
+        focusLabel: focusSpec.name,
+        drillKind: 'coverage-tier',
+        targetCountry: country,
+        promptTitle: `What is the Street View Coverage Tier of ${country.name}?`,
+        promptDescription: `${country.subregion} (${country.region}) · Domain ${country.tld} · Drives ${country.drivingSide}`,
+        suggestedRegionPreset,
+      },
+      assisted: false,
+      isFollowUp,
+      options,
+      startedAtMs: this.now(),
+    };
+  }
+
+  private buildCoverageClusterTrial(
+    country: PlayableCountry,
+    isFollowUp: boolean
+  ): PracticeTrial {
+    // In neighbor-cluster drills, prefer contrasting a country against neighbors with a different coverage tier
+    let targetCountry = country;
+    if (
+      !isFollowUp &&
+      this.coverageDrillMode === 'neighbor-cluster' &&
+      targetCountry.coverageTier === 'official'
+    ) {
+      // Find a nearby trap / None or Limited country in the same region that is not blocked by D = 2 spacing delay
+      const regionTraps = PLAYABLE_COUNTRIES.filter(
+        (c) =>
+          c.region === targetCountry.region &&
+          (c.coverageTier === 'none' || c.isTrapCountry)
+      );
+      const eligibleTrap = regionTraps.find((c) => {
+        const lastSeen = this.sessionLastPresentedAt.get(`cov:${c.id}`);
+        const n = lastSeen !== undefined ? this.sessionTrialCounter - lastSeen : 999;
+        return n > ARTS_SPACING_DELAY;
+      });
+      if (eligibleTrap) {
+        targetCountry = eligibleTrap;
+        this.sessionLastPresentedAt.set(
+          `cov:${targetCountry.id}`,
+          this.sessionTrialCounter
+        );
+      }
+    }
+
+    const skillId = `cov:${targetCountry.id}`;
+    const focusSpec = COVERAGE_FOCUS_MAP[this.activeCoverageFocus];
+    const targetTier = targetCountry.coverageTier;
+
+    // Pick 3–4 neighboring countries in the same subregion/region that do NOT have targetTier
+    const sameSubregionDiffTier = PLAYABLE_COUNTRIES.filter(
+      (c) =>
+        c.id !== targetCountry.id &&
+        c.subregion === targetCountry.subregion &&
+        c.coverageTier !== targetTier
+    );
+    const sameRegionDiffTier = PLAYABLE_COUNTRIES.filter(
+      (c) =>
+        c.id !== targetCountry.id &&
+        c.region === targetCountry.region &&
+        c.subregion !== targetCountry.subregion &&
+        c.coverageTier !== targetTier
+    );
+    const fallbackDiffTier = PLAYABLE_COUNTRIES.filter(
+      (c) => c.id !== targetCountry.id && c.coverageTier !== targetTier
+    );
+
+    const distractors = [
+      ...sameSubregionDiffTier,
+      ...sameRegionDiffTier,
+      ...fallbackDiffTier,
+    ].slice(0, 3);
+
+    const clusterCountries = [targetCountry, ...distractors].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+    const suggestedRegionPreset = inferBestRegionPresetForCountries(clusterCountries);
+
+    const promptTitle =
+      targetTier === 'none'
+        ? `Which of these neighboring countries in ${targetCountry.subregion} has NO playable Street View coverage (None)?`
+        : targetTier === 'limited'
+          ? `Which of these neighboring countries in ${targetCountry.subregion} has LIMITED (partial regional or trekker) Street View coverage?`
+          : `Which of these neighboring countries in ${targetCountry.subregion} has full OFFICIAL Street View road coverage?`;
+
+    const options: TrialOption[] = clusterCountries.map((c, idx) => ({
+      id: `cov:${c.id}`,
+      languageId: c.id,
+      label: c.name,
+      sublabel: `${c.subregion} · ${c.tld}`,
+      shortcutKey: idx + 1,
+    }));
+
+    const sample: LanguageSample = {
+      id: `cov-cluster-${targetCountry.id}`,
+      text: promptTitle,
+      translation: targetCountry.coverageNote,
+      kind: 'sign',
+      tellIds: [],
+      structuralClue: targetCountry.coverageNote,
+    };
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      section: 'coverage',
+      kind: 'coverage-cluster',
+      skillId,
+      languageId: targetCountry.id,
+      countryId: targetCountry.id,
+      country: targetCountry,
+      groupName: `Coverage · ${focusSpec.name} · Neighboring Cluster`,
+      fluencyThresholdMs: LANGUAGE_FLUENCY_THRESHOLD_MS,
+      sample,
+      coveragePrompt: {
+        focusId: this.activeCoverageFocus,
+        focusLabel: focusSpec.name,
+        drillKind: 'coverage-cluster',
+        targetCountry,
+        promptTitle,
+        promptDescription: `Compare neighboring countries in ${targetCountry.subregion} (${targetCountry.region}) and spot the ${targetTier.toUpperCase()} coverage country.`,
+        suggestedRegionPreset,
+        clusterName: targetCountry.subregion,
+        clusterCountries,
+        targetTierQuestion: targetTier,
+      },
+      assisted: false,
+      isFollowUp,
+      options,
+      startedAtMs: this.now(),
+    };
+  }
+
+  private buildCoverageMapTrial(
+    country: PlayableCountry,
+    isFollowUp: boolean
+  ): PracticeTrial {
+    const skillId = `cov:${country.id}`;
+    const focusSpec = COVERAGE_FOCUS_MAP[this.activeCoverageFocus];
+
+    // Scope the regional map drill to the country's region (or subregion for large regions when appropriate)
+    const regionName = country.region;
+    const regionCountries = PLAYABLE_COUNTRIES.filter(
+      (c) => c.region === regionName
+    );
+    const uncoveredInRegion = regionCountries.filter(
+      (c) => c.coverageTier === 'none'
+    );
+    const limitedInRegion = regionCountries.filter(
+      (c) => c.coverageTier === 'limited'
+    );
+
+    let mapTargetFilter: CoverageMapTargetFilter;
+    let poolCountries = regionCountries;
+    let mapRegionLabel: string = regionName;
+
+    if (country.coverageTier === 'none' && uncoveredInRegion.length > 0) {
+      mapTargetFilter = 'uncovered';
+    } else if (
+      country.coverageTier === 'limited' &&
+      limitedInRegion.length > 0 &&
+      this.sessionTrialCounter % 2 === 1
+    ) {
+      mapTargetFilter = 'limited';
+    } else if (regionName === 'Europe' && country.coverageTier === 'official') {
+      // Scope covered European map drill to the country's subregion (e.g. Eastern Europe, Southern Europe, Northern Europe, Western Europe) so clicking is fast & focused
+      const subregionCountries = regionCountries.filter(
+        (c) => c.subregion === country.subregion
+      );
+      if (subregionCountries.length >= 4) {
+        poolCountries = subregionCountries;
+        mapRegionLabel = country.subregion;
+      }
+      mapTargetFilter = 'covered';
+    } else {
+      mapTargetFilter = 'covered';
+    }
+
+    const expectedCountries = poolCountries.filter((c) => {
+      if (mapTargetFilter === 'uncovered') return c.coverageTier === 'none';
+      if (mapTargetFilter === 'limited') return c.coverageTier === 'limited';
+      return c.coverageTier === 'official' || c.coverageTier === 'limited';
+    });
+
+    const expectedCountryIds = expectedCountries.map((c) => c.id);
+    const suggestedRegionPreset = inferBestRegionPresetForCountries(poolCountries);
+
+    const promptTitle =
+      mapTargetFilter === 'uncovered'
+        ? `Click all countries in ${mapRegionLabel} with NO Street View coverage (None)`
+        : mapTargetFilter === 'limited'
+          ? `Click all countries in ${mapRegionLabel} with LIMITED Street View coverage`
+          : `Click all covered countries (Official + Limited) in ${mapRegionLabel}`;
+
+    const promptDescription =
+      mapTargetFilter === 'uncovered'
+        ? `Select every uncovered trap country (coverageTier: none) in ${mapRegionLabel} (${expectedCountryIds.length} expected).`
+        : mapTargetFilter === 'limited'
+          ? `Select every country in ${mapRegionLabel} with partial regional or trekker-only coverage (${expectedCountryIds.length} expected).`
+          : `Select every Playable Country in ${mapRegionLabel} with Official or Limited Street View coverage (${expectedCountryIds.length} expected).`;
+
+    const sample: LanguageSample = {
+      id: `cov-map-${mapRegionLabel.toLowerCase().replace(/\s+/g, '-')}-${mapTargetFilter}`,
+      text: promptTitle,
+      translation: promptDescription,
+      kind: 'sign',
+      tellIds: [],
+      structuralClue: country.coverageNote,
+    };
+
+    return {
+      trialNumber: this.sessionTrialCounter,
+      section: 'coverage',
+      kind: 'coverage-map',
+      skillId,
+      languageId: country.id,
+      countryId: country.id,
+      country,
+      groupName: `Coverage · ${focusSpec.name} · Regional Map Quiz`,
+      fluencyThresholdMs: MAP_BRIDGE_FLUENCY_THRESHOLD_MS,
+      sample,
+      coveragePrompt: {
+        focusId: this.activeCoverageFocus,
+        focusLabel: focusSpec.name,
+        drillKind: 'coverage-map',
+        targetCountry: country,
+        promptTitle,
+        promptDescription,
+        suggestedRegionPreset,
+        mapTargetFilter,
+        mapRegionLabel,
+        regionPoolCountries: poolCountries,
+        expectedCountryIds,
+      },
+      assisted: false,
+      isFollowUp,
+      options: [],
+      startedAtMs: this.now(),
+    };
+  }
+
+  private selectNextCoverageCountryByArts(
+    pool: PlayableCountry[]
+  ): PlayableCountry {
+    const state = this.store.getState();
+
+    const scored = pool.map((country, index) => {
+      const skillId = `cov:${country.id}`;
+      const lastSessionTrial = this.sessionLastPresentedAt.get(skillId);
+      const trialsSinceLastSeen =
+        lastSessionTrial !== undefined
+          ? this.sessionTrialCounter - lastSessionTrial
+          : 999;
+
+      const record = state.skills[skillId];
+      const outgoingConfusions = Object.values(
+        state.confusionMatrix[skillId] ?? {}
+      ).reduce((sum, count) => sum + count, 0);
+      let incomingConfusions = 0;
+      for (const row of Object.values(state.confusionMatrix)) {
+        incomingConfusions += row[skillId] ?? 0;
+      }
+      const totalConfusions = outgoingConfusions + incomingConfusions;
+      const confusionBoost = Math.min(6.0, totalConfusions * 0.75);
+
+      let priority: number;
+      if (trialsSinceLastSeen <= ARTS_SPACING_DELAY) {
+        // Blocked by spacing delay D = 2
+        priority = trialsSinceLastSeen - ARTS_SPACING_DELAY - 10;
+      } else if (!record || record.attempts.length === 0) {
+        // Unseen skill: introduce in focus order (which prioritizes trap, limited, and contrast countries)
+        priority = 2.0 - index * 0.01 + confusionBoost;
+      } else {
+        const lastAttempt = record.attempts[record.attempts.length - 1];
+        priority = computeArtsPriority({
+          trialsSinceLastSeen,
+          lastCorrect: lastAttempt.correct,
+          lastAssisted: lastAttempt.assisted,
+          lastResponseTimeMs: lastAttempt.responseTimeMs,
+          fluencyThresholdMs: LANGUAGE_FLUENCY_THRESHOLD_MS,
+          mastery: record.mastery,
+          confusionBoost,
+        });
+      }
+
+      return { country, priority, trialsSinceLastSeen };
+    });
+
+    scored.sort((a, b) => {
+      if (Math.abs(b.priority - a.priority) > 1e-6) {
+        return b.priority - a.priority;
+      }
+      return b.trialsSinceLastSeen - a.trialsSinceLastSeen;
+    });
+
+    return scored[0].country;
+  }
+
+  private collectRegionalLimitedNotes(
+    targetCountry: PlayableCountry,
+    contextCountries: PlayableCountry[]
+  ): RegionalCoverageNote[] {
+    const notes: RegionalCoverageNote[] = [];
+    const seen = new Set<string>();
+
+    if (targetCountry.coverageTier === 'limited') {
+      notes.push(toRegionalCoverageNote(targetCountry));
+      seen.add(targetCountry.id);
+    }
+
+    for (const c of contextCountries) {
+      if (c.coverageTier === 'limited' && !seen.has(c.id)) {
+        notes.push(toRegionalCoverageNote(c));
+        seen.add(c.id);
+      }
+    }
+
+    // If neither targetCountry nor contextCountries had a 'limited' country, include a nearby regional 'limited' country for reference
+    if (notes.length === 0) {
+      const nearbyLimited = PLAYABLE_COUNTRIES.filter(
+        (c) =>
+          c.coverageTier === 'limited' &&
+          (c.subregion === targetCountry.subregion || c.region === targetCountry.region)
+      ).slice(0, 2);
+      for (const c of nearbyLimited) {
+        notes.push(toRegionalCoverageNote(c));
+      }
+    }
+
+    return notes.slice(0, 6);
+  }
+
+  private collectTrapCountryNotes(
+    targetCountry: PlayableCountry,
+    contextCountries: PlayableCountry[]
+  ): RegionalCoverageNote[] {
+    const notes: RegionalCoverageNote[] = [];
+    const seen = new Set<string>();
+
+    if (targetCountry.coverageTier === 'none' || targetCountry.isTrapCountry) {
+      notes.push(toRegionalCoverageNote(targetCountry));
+      seen.add(targetCountry.id);
+    }
+
+    for (const c of contextCountries) {
+      if ((c.coverageTier === 'none' || c.isTrapCountry) && !seen.has(c.id)) {
+        notes.push(toRegionalCoverageNote(c));
+        seen.add(c.id);
+      }
+    }
+
+    return notes.slice(0, 6);
+  }
+
+  private toUnifiedLanguageTrialFeedback(
+    trial: PracticeTrial,
+    cov: CoverageTrialFeedback
+  ): LanguageTrialFeedback {
+    return {
+      correct: cov.correct,
+      assisted: cov.assisted,
+      skillId: cov.skillId,
+      languageId: cov.countryId,
+      languageName: cov.countryName,
+      nativeName: `${cov.coverageTier.toUpperCase()} Coverage`,
+      chosenOptionId: cov.chosenOptionId,
+      chosenLanguageName: cov.chosenLabel,
+      responseTimeMs: cov.responseTimeMs,
+      fluencyTargetMs: cov.fluencyTargetMs,
+      isFluentSpeed: cov.isFluentSpeed,
+      previousMastery: cov.previousMastery,
+      newMastery: cov.newMastery,
+      sample: trial.sample,
+      translation: cov.coverageNote,
+      matchedTells: [],
+      structuralClue: cov.coverageNote,
+      gestaltNote: cov.coverageNote,
+      contrastNote: cov.coverageNote,
+      candidateCountries:
+        cov.country.coverageTier !== 'none' ? [cov.country] : [],
+      uncoveredCountryNotes: cov.trapCountryNotes.map(
+        (n) => `${n.countryName} (${n.coverageTier.toUpperCase()}): ${n.coverageNote}`
+      ),
+      mapEvaluation: cov.mapEvaluation,
+      countryId: cov.countryId,
+      country: cov.country,
+      coverageTier: cov.coverageTier,
+      coverageNote: cov.coverageNote,
+      regionalLimitedNotes: cov.regionalLimitedNotes,
+      trapCountryNotes: cov.trapCountryNotes,
+      mapHighlightedCountryIds: cov.mapHighlightedCountryIds,
+      coverageFeedback: cov,
+    };
   }
 }

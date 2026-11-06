@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   LANGUAGE_GROUPS,
+  type CoverageFocusId,
   type LanguageGroupSelectionId,
   type SectionId,
 } from '../data/index.ts';
@@ -15,6 +16,7 @@ interface DashboardViewProps {
   progress: ProgressData;
   sectionBreakdowns: Record<SectionId, SectionMasteryBreakdown>;
   onOpenLanguagesSection: (initialGroup?: LanguageGroupSelectionId) => void;
+  onOpenCoverageSection: (initialFocus?: CoverageFocusId) => void;
   onOpenDataModal: () => void;
 }
 
@@ -47,7 +49,7 @@ const SECTION_CARDS: Array<{
     subtitle:
       'Internalize Official, Limited, and None Street View Coverage Tiers and rule out trap countries.',
     clueExamples: ['China (None)', 'Tunisia (Limited)', 'Senegal (Limited)', 'Belarus (None)'],
-    availableInV1Slice: false,
+    availableInV1Slice: true,
   },
   {
     id: 'domains-currencies',
@@ -63,6 +65,7 @@ export function DashboardView({
   progress,
   sectionBreakdowns,
   onOpenLanguagesSection,
+  onOpenCoverageSection,
   onOpenDataModal,
 }: DashboardViewProps) {
   const allBreakdowns = Object.values(sectionBreakdowns);
@@ -272,11 +275,15 @@ export function DashboardView({
                     </div>
                     <button
                       type="button"
-                      onClick={() =>
-                        onOpenLanguagesSection(
-                          skill.groupId ?? 'smart-weakest'
-                        )
-                      }
+                      onClick={() => {
+                        if (skill.section === 'coverage') {
+                          onOpenCoverageSection('world');
+                        } else {
+                          onOpenLanguagesSection(
+                            skill.groupId ?? 'smart-weakest'
+                          );
+                        }
+                      }}
                       className="shrink-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
                     >
                       Practice
@@ -470,7 +477,13 @@ export function DashboardView({
                   {card.availableInV1Slice ? (
                     <button
                       type="button"
-                      onClick={() => onOpenLanguagesSection()}
+                      onClick={() => {
+                        if (card.id === 'coverage') {
+                          onOpenCoverageSection();
+                        } else {
+                          onOpenLanguagesSection();
+                        }
+                      }}
                       className="rounded-lg bg-[var(--brand-accent)] px-4 py-1.5 text-[0.875rem] font-semibold text-white hover:opacity-95"
                     >
                       Open {card.title} →
