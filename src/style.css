@@ -1,51 +1,38 @@
 @import "tailwindcss";
 
-:root {
-  /* Light & dark raw tokens with prefers-color-scheme fallback and light-dark() progressive enhancement */
-  --surface-canvas-light: #f5f5f7;
-  --surface-canvas-dark: #0b0c0e;
-  --surface-card-light: #ffffff;
-  --surface-card-dark: #14161a;
-  --surface-elevated-light: #efeff4;
-  --surface-elevated-dark: #1c1f26;
-  --text-primary-light: #1d1d1f;
-  --text-primary-dark: #f5f5f7;
-  --text-secondary-light: #515154;
-  --text-secondary-dark: #a1a1a6;
-  --border-subtle-light: rgba(0, 0, 0, 0.09);
-  --border-subtle-dark: rgba(255, 255, 255, 0.11);
-  --brand-accent-light: #0071e3;
-  --brand-accent-dark: #0a84ff;
-
-  --surface-canvas: var(--surface-canvas-light);
-  --surface-card: var(--surface-card-light);
-  --surface-elevated: var(--surface-elevated-light);
-  --text-primary: var(--text-primary-light);
-  --text-secondary: var(--text-secondary-light);
-  --border-subtle: var(--border-subtle-light);
-  --brand-accent: var(--brand-accent-light);
+@custom-variant dark {
+  &:where(html[data-theme="dark"], html[data-theme="dark"] *) {
+    @slot;
+  }
 
   @media (prefers-color-scheme: dark) {
-    --surface-canvas: var(--surface-canvas-dark);
-    --surface-card: var(--surface-card-dark);
-    --surface-elevated: var(--surface-elevated-dark);
-    --text-primary: var(--text-primary-dark);
-    --text-secondary: var(--text-secondary-dark);
-    --border-subtle: var(--border-subtle-dark);
-    --brand-accent: var(--brand-accent-dark);
+    &:where(html:not([data-theme]), html:not([data-theme]) *) {
+      @slot;
+    }
+  }
+}
+
+:root {
+  color-scheme: light;
+  --surface-canvas: #f5f5f7;
+  --surface-card: #ffffff;
+  --surface-elevated: #efeff4;
+  --text-primary: #1d1d1f;
+  --text-secondary: #515154;
+  --border-subtle: rgba(0, 0, 0, 0.09);
+  --brand-accent: #0071e3;
+
+  @variant dark {
+    color-scheme: dark;
+    --surface-canvas: #0b0c0e;
+    --surface-card: #14161a;
+    --surface-elevated: #1c1f26;
+    --text-primary: #f5f5f7;
+    --text-secondary: #a1a1a6;
+    --border-subtle: rgba(255, 255, 255, 0.11);
+    --brand-accent: #0a84ff;
   }
 
-  @supports (color: light-dark(white, black)) {
-    --surface-canvas: light-dark(var(--surface-canvas-light), var(--surface-canvas-dark));
-    --surface-card: light-dark(var(--surface-card-light), var(--surface-card-dark));
-    --surface-elevated: light-dark(var(--surface-elevated-light), var(--surface-elevated-dark));
-    --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
-    --text-secondary: light-dark(var(--text-secondary-light), var(--text-secondary-dark));
-    --border-subtle: light-dark(var(--border-subtle-light), var(--border-subtle-dark));
-    --brand-accent: light-dark(var(--brand-accent-light), var(--brand-accent-dark));
-  }
-
-  color-scheme: light dark;
   accent-color: var(--brand-accent);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
   line-height: 1.5;

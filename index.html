@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <script>
+      // Apply the saved appearance before the app's first paint.
+      try {
+        const theme = localStorage.getItem('geoguessr-practice:theme');
+        if (theme === 'light' || theme === 'dark') {
+          document.documentElement.dataset.theme = theme;
+        }
+      } catch {
+        // The system appearance is the fallback when storage is unavailable.
+      }
+    </script>
     <title>Dashboard | GeoGuessr Practice</title>
   </head>
   <body>

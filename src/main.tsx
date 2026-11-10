@@ -33,6 +33,28 @@ const ROUTE_LABELS = {
 
 type ActiveRoute = keyof typeof ROUTE_LABELS;
 
+function handleAppearanceChange(event: React.ChangeEvent<HTMLSelectElement>) {
+  const theme = event.currentTarget.value;
+  const root = document.documentElement;
+  const storageKey = 'geoguessr-practice:theme';
+
+  if (theme === 'light' || theme === 'dark') {
+    root.dataset.theme = theme;
+  } else {
+    delete root.dataset.theme;
+  }
+
+  try {
+    if (root.dataset.theme) {
+      localStorage.setItem(storageKey, root.dataset.theme);
+    } else {
+      localStorage.removeItem(storageKey);
+    }
+  } catch {
+    // The document still uses the selected appearance when storage is unavailable.
+  }
+}
+
 export function App({ customStore }: { customStore?: ProgressStore }) {
   const store = useMemo(
     () => customStore ?? new ProgressStore(createBrowserProgressAdapter()),
@@ -147,10 +169,26 @@ export function App({ customStore }: { customStore?: ProgressStore }) {
               ))}
             </ul>
           </nav>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="hidden text-[0.75rem] text-[var(--text-secondary)] sm:inline">
               {progress.totalTrials} trials · {progress.streakDays}d streak
             </span>
+            <label className="flex items-center gap-2 text-[0.8125rem] font-medium">
+              <span className="text-[var(--text-secondary)]">Appearance</span>
+              <select
+                defaultValue={
+                  typeof document === 'undefined'
+                    ? 'system'
+                    : document.documentElement.dataset.theme ?? 'system'
+                }
+                onChange={handleAppearanceChange}
+                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-2 py-1.5 hover:border-[var(--text-secondary)]"
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
             <button
               type="button"
               onClick={() => setIsDataModalOpen(true)}
