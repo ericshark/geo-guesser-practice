@@ -282,7 +282,7 @@ function Stimulus({
   if (visual) return <VisualSvg visual={visual} label={text} />;
   const segments = highlight ? highlightStimulus(clue, text, tellIds) : [{ text }];
   return (
-    <div className={`stimulus${kind === 'sign' ? ' sign' : ''}${mono ? ' mono' : ''}${kind === 'plain' && !mono ? ' plain' : ''}`}>
+    <div className={`stimulus${kind === 'sign' ? ' sign' : ''}${mono ? ' mono' : ''}${kind === 'plain' && !mono ? ' plain' : ''}${kind === 'sentence' && text.length > 36 ? ' long' : ''}`}>
       {segments.map((seg, i) =>
         'tellMatch' in seg && seg.tellMatch ? (
           <mark key={i} className="tell" title={seg.tellMatch.label} style={{ color: 'inherit' }}>{seg.text}</mark>

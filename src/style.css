@@ -556,6 +556,10 @@ button.chip:hover {
   font-family: var(--mono);
   font-size: 1.5rem;
 }
+.stimulus.long {
+  font-size: 1.25rem;
+  padding: 24px 20px;
+}
 .stimulus.plain {
   font-size: 1.125rem;
   color: var(--muted);
