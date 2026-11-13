@@ -1,4 +1,4 @@
-import { CLUES, CLUE_MAP, LESSONS, TOPIC_MAP, type Lesson, type Topic } from '../content/index.ts';
+import { CLUES, CLUE_MAP, TOPICS, TOPIC_MAP, type Lesson, type Topic } from '../content/index.ts';
 import type { ProgressData } from '../storage/schema.ts';
 import { countMastery, knowledgeScore, type MasteryCounts } from './mastery.ts';
 import { dueClues } from './sessionBuilder.ts';
@@ -36,9 +36,18 @@ export function overallProgress(progress: ProgressData): { counts: MasteryCounts
   return { counts, score: knowledgeScore(counts) };
 }
 
-/** First lesson, in curriculum order, that the learner has not finished. */
+/**
+ * The recommended next lesson. Breadth first: pick the topic with the smallest share of lessons
+ * finished (ties go to the earlier, higher-value topic), then its first unfinished lesson. A long
+ * topic such as Foundations therefore does not block the others, and topics are interleaved.
+ */
 export function nextLesson(progress: ProgressData): Lesson | null {
-  return LESSONS.find((l) => !progress.completedLessons.includes(l.id)) ?? null;
+  const open = TOPICS.filter((t) => t.lessons.some((l) => !progress.completedLessons.includes(l.id)));
+  if (open.length === 0) return null;
+  const share = (t: Topic) =>
+    t.lessons.filter((l) => progress.completedLessons.includes(l.id)).length / t.lessons.length;
+  const topic = [...open].sort((a, b) => share(a) - share(b) || a.order - b.order)[0];
+  return topic.lessons.find((l) => !progress.completedLessons.includes(l.id)) ?? null;
 }
 
 export type NextAction =

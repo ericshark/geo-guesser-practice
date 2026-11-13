@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CLUES, LESSONS } from '../content/index.ts';
 import { createInitialProgressData, type ProgressData } from '../storage/schema.ts';
-import { nextAction, topConfusions } from './curriculum.ts';
+import { nextAction, nextLesson, topConfusions } from './curriculum.ts';
 import { masteryOf } from './mastery.ts';
 import { seededRng } from './random.ts';
 import { gradeFor, isDue, reviewClue } from './scheduler.ts';
@@ -133,6 +133,18 @@ describe('curriculum selectors', () => {
     const backlog = progressWith(ids);
     const action = nextAction(backlog, days(30));
     expect(action.kind).toBe('review');
+  });
+
+  it('rotates through topics instead of finishing one long topic first', () => {
+    const p = createInitialProgressData(T0);
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const lesson = nextLesson(p)!;
+      seen.push(lesson.topicId);
+      p.completedLessons.push(lesson.id);
+    }
+    expect(new Set(seen).size).toBe(4);
+    expect(seen[0]).toBe(LESSONS[0].topicId);
   });
 
   it('only reports repeated real mix-ups', () => {
