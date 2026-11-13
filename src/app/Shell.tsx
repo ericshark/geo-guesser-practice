@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { Suspense, useEffect, useId, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Compass, Settings } from 'lucide-react';
 import { useApp } from './AppContext.tsx';
@@ -40,7 +40,13 @@ export function Shell() {
         </div>
       </header>
       <main id={mainId} className="page">
-        {ready ? <Outlet /> : <p className="muted" role="status">Loading your progress…</p>}
+        {ready ? (
+          <Suspense fallback={<p className="muted" role="status">Loading…</p>}>
+            <Outlet />
+          </Suspense>
+        ) : (
+          <p className="muted" role="status">Loading your progress…</p>
+        )}
       </main>
       <nav className="tabbar" aria-label="Main">
         {NAV.map((item) => (
@@ -57,7 +63,13 @@ export function SessionLayout() {
   const { ready } = useApp();
   return (
     <main>
-      {ready ? <Outlet /> : <p className="muted session" role="status">Loading…</p>}
+      {ready ? (
+        <Suspense fallback={<p className="muted session" role="status">Loading…</p>}>
+          <Outlet />
+        </Suspense>
+      ) : (
+        <p className="muted session" role="status">Loading…</p>
+      )}
     </main>
   );
 }
