@@ -36,12 +36,12 @@ export function LanguageContrastGrid({
         return (
           <div
             key={entry.id}
-            className="apple-card flex flex-col justify-between p-5 space-y-4"
+            className="card flex flex-col justify-between p-5 space-y-4"
           >
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <Heading className="text-[1.125rem] font-bold">
+                  <Heading className="text-[1.1875rem] font-black">
                     {entry.name}{' '}
                     <span className="font-normal text-[var(--text-secondary)]">
                       ({entry.nativeName})
@@ -62,7 +62,7 @@ export function LanguageContrastGrid({
                 {entry.tells.map((tell, idx) => (
                   <div
                     key={tell.id}
-                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2.5 text-[0.8125rem]"
+                    className="rounded-xl bg-[var(--surface-elevated)] p-3 text-[0.8125rem]"
                   >
                     <div className="flex items-center gap-2">
                       <span
@@ -82,7 +82,7 @@ export function LanguageContrastGrid({
               </div>
 
               {/* Contrast & Gestalt Note */}
-              <div className="rounded-lg bg-[var(--surface-elevated)] p-3 text-[0.8125rem]">
+              <div className="rounded-xl bg-[var(--brand-soft)] p-3 text-[0.8125rem]">
                 <p>
                   <strong>How to distinguish:</strong> {entry.contrastNote}
                 </p>
@@ -92,7 +92,7 @@ export function LanguageContrastGrid({
               </div>
 
               {/* Highlighted Example Sample */}
-              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3">
+              <div className="rounded-xl border-2 border-[var(--border-subtle)] p-3">
                 <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                   Sample ({entry.exampleSample.kind})
                 </p>

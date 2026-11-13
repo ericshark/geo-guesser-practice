@@ -60,6 +60,40 @@ describe('Primary Seam — PracticeEngine (Session & ARTS Learning Controller)',
     expect(firstTrial!.options.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('tracks current and best correct-answer streaks in session stats', async () => {
+    engine.startLanguageSession({
+      groupId: 'east-asian',
+      skipPrime: true,
+      drillMode: 'samples',
+    });
+
+    const answer = async (correct: boolean) => {
+      const trial = engine.getCurrentTrial()!;
+      const choice = correct
+        ? trial.skillId
+        : trial.options.find((o) => o.id !== trial.skillId)!.id;
+      await engine.submitAnswer(choice, 1500);
+      engine.nextTrial();
+    };
+
+    await answer(true);
+    await answer(true);
+    await answer(true);
+    expect(engine.getSessionStats()).toMatchObject({
+      currentStreak: 3,
+      bestStreak: 3,
+    });
+
+    await answer(false);
+    await answer(true);
+    expect(engine.getSessionStats()).toMatchObject({
+      trialsCompleted: 5,
+      correctCount: 4,
+      currentStreak: 1,
+      bestStreak: 3,
+    });
+  });
+
   it('enforces ARTS spacing delay D = 2 (at least 2 intervening trials before repeating a skill) and prioritizes errors and slow correct answers ahead of fast correct answers', async () => {
     // Direct unit check on ARTS priority formula
     const blockedByDelay = computeArtsPriority({

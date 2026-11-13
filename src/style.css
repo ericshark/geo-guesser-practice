@@ -14,27 +14,69 @@
 
 :root {
   color-scheme: light;
-  --surface-canvas: #f5f5f7;
+  --surface-canvas: #f3f4fb;
   --surface-card: #ffffff;
-  --surface-elevated: #efeff4;
-  --text-primary: #1d1d1f;
-  --text-secondary: #515154;
-  --border-subtle: rgba(0, 0, 0, 0.09);
-  --brand-accent: #0071e3;
+  --surface-elevated: #eceefa;
+  --text-primary: #1a1c3a;
+  --text-secondary: #565b7e;
+  --border-subtle: rgba(26, 28, 58, 0.1);
+  --border-strong: rgba(26, 28, 58, 0.16);
+  --brand-accent: #5b45e8;
+  --brand-shade: #4231c2;
+  --brand-soft: rgba(91, 69, 232, 0.12);
+
+  /* Feedback & game colors */
+  --good: #16a34a;
+  --good-shade: #11843c;
+  --good-soft: rgba(22, 163, 74, 0.13);
+  --bad: #e5484d;
+  --bad-shade: #c2363b;
+  --bad-soft: rgba(229, 72, 77, 0.12);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.16);
+  --xp: #f5a524;
+
+  /* Section identity colors */
+  --sec-languages: #7c5cff;
+  --sec-driving: #f9731a;
+  --sec-coverage: #0ea5e9;
+  --sec-domains: #ec4899;
+
+  /* Mastery State colors */
+  --m-unseen: #9095b0;
+  --m-learning: #f59e0b;
+  --m-recognized: #0ea5e9;
+  --m-mastered: #16a34a;
+
+  --shadow-card: 0 1px 0 rgba(26, 28, 58, 0.04), 0 8px 24px -12px rgba(46, 38, 120, 0.18);
 
   @variant dark {
     color-scheme: dark;
-    --surface-canvas: #0b0c0e;
-    --surface-card: #14161a;
-    --surface-elevated: #1c1f26;
-    --text-primary: #f5f5f7;
-    --text-secondary: #a1a1a6;
-    --border-subtle: rgba(255, 255, 255, 0.11);
-    --brand-accent: #0a84ff;
+    --surface-canvas: #11121d;
+    --surface-card: #1b1d2d;
+    --surface-elevated: #25283c;
+    --text-primary: #f1f2ff;
+    --text-secondary: #a6aac6;
+    --border-subtle: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --brand-accent: #6c5bff;
+    --brand-shade: #4c3dd1;
+    --brand-soft: rgba(124, 108, 255, 0.2);
+    --good: #22c55e;
+    --good-shade: #15903f;
+    --good-soft: rgba(34, 197, 94, 0.16);
+    --bad: #f0565b;
+    --bad-shade: #b9363b;
+    --bad-soft: rgba(240, 86, 91, 0.16);
+    --warn-soft: rgba(245, 158, 11, 0.2);
+    --m-unseen: #6f7390;
+    --shadow-card: 0 1px 0 rgba(0, 0, 0, 0.3), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
   }
 
   accent-color: var(--brand-accent);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
+  font-family: "Nunito", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Slightly larger root size scales every rem-based size up for readability. */
+  font-size: 106.25%;
   line-height: 1.5;
 }
 
@@ -42,6 +84,10 @@ body {
   margin: 0;
   min-height: 100vh;
   background-color: var(--surface-canvas);
+  background-image:
+    radial-gradient(60rem 30rem at 110% -10%, var(--brand-soft), transparent 60%),
+    radial-gradient(40rem 24rem at -10% 0%, rgba(14, 165, 233, 0.08), transparent 60%);
+  background-attachment: fixed;
   color: var(--text-primary);
   line-height: 1.5;
   text-align: start;
@@ -49,17 +95,23 @@ body {
 }
 
 h1, h2, h3, h4 {
-  line-height: 1.25;
+  line-height: 1.2;
   text-wrap: balance;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 p {
   text-wrap: pretty;
 }
 
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 /* Accessible focus ring using :focus-visible and outline-offset */
 :where(a:any-link, button, input, select, textarea, summary):focus-visible {
-  outline: 2px solid var(--brand-accent);
+  outline: 3px solid var(--brand-accent);
   outline-offset: 2px;
 }
 
@@ -82,20 +134,23 @@ p {
   left: 0.75rem;
   z-index: 100;
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
   background-color: var(--surface-card);
   color: var(--text-primary);
   border: 1px solid var(--border-subtle);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 700;
 }
 
+/* ---------- Surfaces ---------- */
+
+.card,
 .apple-card {
   background-color: var(--surface-card);
   border: 1px solid var(--border-subtle);
-  border-radius: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow-card);
 }
 
 .apple-surface-elevated {
@@ -103,9 +158,302 @@ p {
   border: 1px solid var(--border-subtle);
 }
 
+/* ---------- Buttons: chunky, tactile "3D" press ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: 0.9rem;
+  border: 2px solid transparent;
+  border-bottom-width: 4px;
+  font-weight: 800;
+  font-size: 0.9375rem;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 80ms ease, border-bottom-width 80ms ease, filter 120ms ease, background-color 120ms ease;
+}
+
+.btn:hover {
+  filter: brightness(1.05);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+  margin-bottom: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: var(--brand-accent);
+  border-color: var(--brand-shade);
+  color: #fff;
+}
+
+.btn-good {
+  background-color: var(--good);
+  border-color: var(--good-shade);
+  color: #fff;
+}
+
+.btn-bad {
+  background-color: var(--bad);
+  border-color: var(--bad-shade);
+  color: #fff;
+}
+
+.btn-secondary {
+  background-color: var(--surface-card);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+  background-color: var(--surface-elevated);
+  filter: none;
+}
+
+.btn-ghost {
+  background-color: transparent;
+  border-color: transparent;
+  border-bottom-width: 2px;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background-color: var(--surface-elevated);
+  color: var(--text-primary);
+  filter: none;
+}
+
+.btn-sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8125rem;
+  border-radius: 0.7rem;
+}
+
+.btn-lg {
+  padding: 0.9rem 1.6rem;
+  font-size: 1.0625rem;
+  border-radius: 1.1rem;
+}
+
+/* ---------- Answer tiles ---------- */
+
+.answer-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.8rem 1rem;
+  border-radius: 1rem;
+  border: 2px solid var(--border-strong);
+  border-bottom-width: 4px;
+  background-color: var(--surface-card);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 80ms ease, background-color 120ms ease, border-color 120ms ease, opacity 150ms ease;
+}
+
+.answer-tile:hover:not(:disabled) {
+  border-color: var(--brand-accent);
+  background-color: var(--brand-soft);
+}
+
+.answer-tile:active:not(:disabled) {
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+  margin-bottom: 2px;
+}
+
+.answer-tile:disabled {
+  cursor: default;
+}
+
+.answer-tile[data-state="correct"] {
+  border-color: var(--good);
+  background-color: var(--good-soft);
+}
+
+.answer-tile[data-state="wrong"] {
+  border-color: var(--bad);
+  background-color: var(--bad-soft);
+}
+
+.answer-tile[data-state="dim"] {
+  opacity: 0.5;
+}
+
+.answer-tile[data-state="selected"] {
+  border-color: var(--brand-accent);
+  background-color: var(--brand-soft);
+}
+
+.key-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.35rem;
+  border-radius: 0.5rem;
+  border: 2px solid var(--border-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.answer-tile[data-state="correct"] .key-badge {
+  border-color: var(--good);
+  background-color: var(--good);
+  color: #fff;
+}
+
+.answer-tile[data-state="wrong"] .key-badge {
+  border-color: var(--bad);
+  background-color: var(--bad);
+  color: #fff;
+}
+
+/* ---------- Chips & progress ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--surface-elevated);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.progress-track {
+  height: 0.75rem;
+  width: 100%;
+  border-radius: 999px;
+  background-color: var(--surface-elevated);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background-color: var(--good);
+  /* Glossy highlight stripe on progress fills */
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.35) 0 35%, transparent 35%);
+  transition: width 300ms ease;
+}
+
+/* Feedback sheet pinned to the bottom of the viewport during a round */
+.feedback-sheet {
+  position: sticky;
+  /* Sit above the mobile bottom tab bar; flush with the viewport on desktop. */
+  bottom: calc(4rem + env(safe-area-inset-bottom));
+  z-index: 20;
+  border-top: 3px solid var(--border-strong);
+  border-radius: 1.25rem 1.25rem 0 0;
+}
+
+@media (min-width: 1024px) {
+  .feedback-sheet {
+    bottom: 0;
+  }
+}
+
+.feedback-sheet[data-tone="good"] {
+  background-color: color-mix(in srgb, var(--good) 14%, var(--surface-card));
+  border-top-color: var(--good);
+}
+
+.feedback-sheet[data-tone="bad"] {
+  background-color: color-mix(in srgb, var(--bad) 12%, var(--surface-card));
+  border-top-color: var(--bad);
+}
+
+/* ---------- Motion (respecting reduced-motion) ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .anim-pop {
+    animation: pop-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+  }
+
+  .anim-rise {
+    animation: rise-in 320ms ease-out both;
+  }
+
+  .anim-shake {
+    animation: shake 380ms ease both;
+  }
+
+  .anim-bounce {
+    animation: bounce 420ms ease both;
+  }
+
+  .answer-tile[data-state="wrong"] {
+    animation: shake 380ms ease both;
+  }
+
+  .answer-tile[data-state="correct"] {
+    animation: bounce 420ms ease both;
+  }
+
+  .confetti-piece {
+    animation: confetti-fall 1400ms ease-out both;
+  }
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.04); }
+  70% { transform: scale(0.98); }
+}
+
+@keyframes confetti-fall {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+}
+
 @media (forced-colors: active) {
+  .card,
   .apple-card,
-  .apple-surface-elevated {
+  .apple-surface-elevated,
+  .answer-tile,
+  .btn {
     border: 1px solid CanvasText;
   }
 }

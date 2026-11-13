@@ -115,11 +115,11 @@ export function DataManagementModal({
       ref={dialogRef}
       aria-labelledby={titleId}
       onClose={onClose}
-      className="apple-card m-auto w-full max-w-xl p-6 text-[var(--text-primary)] backdrop:bg-black/50"
+      className="card m-auto w-[calc(100%-2rem)] max-w-xl p-6 text-[var(--text-primary)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
     >
       <div className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>
-          <h2 id={titleId} className="text-[1.25rem] font-semibold">
+          <h2 id={titleId} className="text-[1.375rem] font-black">
             Progress Persistence & Backup
           </h2>
           <p className="mt-1 text-[0.875rem] text-[var(--text-secondary)]">
@@ -130,7 +130,7 @@ export function DataManagementModal({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.875rem] font-medium hover:bg-zinc-500/10"
+          className="btn btn-ghost btn-sm"
         >
           Close
         </button>
@@ -158,21 +158,21 @@ export function DataManagementModal({
           <button
             type="button"
             onClick={handleDownloadBackup}
-            className="rounded-lg bg-[var(--brand-accent)] px-4 py-2 text-[0.875rem] font-medium text-white hover:opacity-95"
+            className="btn btn-primary btn-sm"
           >
             Download JSON Backup
           </button>
           <button
             type="button"
             onClick={handleLoadCurrentIntoEditor}
-            className="rounded-lg border border-[var(--border-subtle)] px-3.5 py-2 text-[0.875rem] font-medium hover:bg-zinc-500/10"
+            className="btn btn-secondary btn-sm"
           >
             Inspect Current JSON
           </button>
           <div>
             <label
               htmlFor={fileInputId}
-              className="cursor-pointer rounded-lg border border-[var(--border-subtle)] px-3.5 py-2 text-[0.875rem] font-medium hover:bg-zinc-500/10 inline-block"
+              className="btn btn-secondary btn-sm"
             >
               Upload Backup File
             </label>
@@ -199,12 +199,12 @@ export function DataManagementModal({
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
             placeholder='{"version": 1, ...}'
-            className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3 font-mono text-[0.8125rem]"
+            className="w-full rounded-xl border-2 border-[var(--border-strong)] bg-[var(--surface-canvas)] p-3 font-mono text-[0.8125rem]"
           />
           <button
             type="submit"
             disabled={!importText.trim()}
-            className="rounded-lg border border-[var(--border-subtle)] px-4 py-1.5 text-[0.875rem] font-medium hover:bg-zinc-500/10 disabled:opacity-40"
+            className="btn btn-secondary btn-sm"
           >
             Validate & Import JSON
           </button>
@@ -223,14 +223,14 @@ export function DataManagementModal({
               <button
                 type="button"
                 onClick={() => setPendingResetTarget('languages')}
-                className="rounded-lg border border-rose-500/30 px-3.5 py-1.5 text-[0.8125rem] font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+                className="btn btn-secondary btn-sm !text-[var(--bad)]"
               >
                 Reset Languages Section…
               </button>
               <button
                 type="button"
                 onClick={() => setPendingResetTarget('all')}
-                className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3.5 py-1.5 text-[0.8125rem] font-medium text-rose-700 dark:text-rose-300 hover:bg-rose-500/20"
+                className="btn btn-secondary btn-sm !text-[var(--bad)]"
               >
                 Reset All Progress…
               </button>
@@ -250,14 +250,14 @@ export function DataManagementModal({
                 <button
                   type="button"
                   onClick={handleConfirmReset}
-                  className="rounded-lg bg-rose-600 px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:bg-rose-700"
+                  className="btn btn-bad btn-sm"
                 >
                   Confirm Reset
                 </button>
                 <button
                   type="button"
                   onClick={() => setPendingResetTarget(null)}
-                  className="rounded-lg border border-[var(--border-subtle)] px-3.5 py-1.5 text-[0.8125rem] font-medium"
+                  className="btn btn-secondary btn-sm"
                 >
                   Cancel
                 </button>

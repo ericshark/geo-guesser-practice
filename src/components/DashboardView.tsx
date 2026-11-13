@@ -1,4 +1,4 @@
-import React from 'react';
+import { ChevronRight, Flame, Play, Sparkles, Target, Trophy } from 'lucide-react';
 import {
   LANGUAGE_GROUPS,
   type CoverageFocusId,
@@ -11,7 +11,8 @@ import {
   getWeakestLearningSkills,
 } from '../engine/practiceEngine.ts';
 import type { ProgressData, SectionMasteryBreakdown } from '../storage/index.ts';
-import { MasteryBadge, MasteryRing } from './MasteryBadge.tsx';
+import { MasteryBadge, MasteryBar, MasteryRing } from './MasteryBadge.tsx';
+import { SECTION_META, SECTION_ORDER } from './sectionMeta.ts';
 
 interface DashboardViewProps {
   progress: ProgressData;
@@ -23,41 +24,22 @@ interface DashboardViewProps {
   onOpenDataModal: () => void;
 }
 
-const SECTION_CARDS: Array<{
-  id: SectionId;
-  title: string;
-  subtitle: string;
-  clueExamples: string[];
-}> = [
-  {
-    id: 'languages',
-    title: 'Languages',
-    subtitle:
-      'Recognize Sentences, Sign Text, and explicit Tells across 10 visually confusable Language Groups.',
-    clueExamples: ['ß → German', 'ő / ű → Hungarian', 'ř / ů → Czech', 'ㅇ / ㅎ → Korean'],
-  },
-  {
-    id: 'driving-side',
-    title: 'Driving Side',
-    subtitle:
-      'Build instant spatial recall of left- vs right-driving Playable Countries and road-edge geometry clues.',
-    clueExamples: ['Kenya (Left)', 'Rwanda (Right)', 'Thailand (Left)', 'Laos (Right)'],
-  },
-  {
-    id: 'coverage',
-    title: 'Coverage',
-    subtitle:
-      'Internalize Official, Limited, and None Street View Coverage Tiers and rule out trap countries.',
-    clueExamples: ['China (None)', 'Tunisia (Limited)', 'Senegal (Limited)', 'Belarus (None)'],
-  },
-  {
-    id: 'domains-currencies',
-    title: 'Domains & Currencies',
-    subtitle:
-      'Map country-code domains (.hr, .ch, .za, .rs) and currency signs (zł, Kč, Ft, ฿, ₪) to Candidate Countries.',
-    clueExamples: ['.hr → Croatia', 'zł → Poland', 'Kč → Czechia', '.za → South Africa'],
-  },
-];
+/** Turns raw option ids that leak into confusion labels (e.g. "side:right") into words. */
+function readableLabel(label: string): string {
+  const match = /^(side|tier|map):(\w+)$/.exec(label);
+  if (!match) return label;
+  const [, kind, value] = match;
+  if (kind === 'side') return `driving ${value}`;
+  return `${value} coverage`;
+}
+
+function greeting(totalTrials: number): string {
+  if (totalTrials === 0) return 'Welcome, explorer!';
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning, explorer!';
+  if (hour < 18) return 'Good afternoon, explorer!';
+  return 'Good evening, explorer!';
+}
 
 export function DashboardView({
   progress,
@@ -66,10 +48,8 @@ export function DashboardView({
   onOpenDrivingSideSection,
   onOpenCoverageSection,
   onOpenDomainsCurrenciesSection,
-  onOpenDataModal,
 }: DashboardViewProps) {
-  const allBreakdowns = Object.values(sectionBreakdowns);
-  const overallTotals = allBreakdowns.reduce(
+  const overallTotals = Object.values(sectionBreakdowns).reduce(
     (acc, b) => {
       acc.unseen += b.unseen;
       acc.learning += b.learning;
@@ -85,457 +65,261 @@ export function DashboardView({
   const recentAccuracy =
     progress.recentTrials.length > 0
       ? Math.round((recentCorrect / progress.recentTrials.length) * 100)
-      : 0;
+      : null;
 
-  const totalMinutes = Math.max(
-    0,
-    Math.round(progress.totalTimeMs / 60_000)
-  );
+  const confusionPairs = getTopConfusionPairs(progress, 4);
+  const weakestSkills = getWeakestLearningSkills(progress, 4);
 
-  const confusionPairs = getTopConfusionPairs(progress, 6);
-  const weakestSkills = getWeakestLearningSkills(progress, 6);
+  const openSection: Record<SectionId, () => void> = {
+    languages: () => onOpenLanguagesSection(),
+    'driving-side': () => onOpenDrivingSideSection(),
+    coverage: () => onOpenCoverageSection(),
+    'domains-currencies': () => onOpenDomainsCurrenciesSection(),
+  };
+
+  const heroStats = [
+    { icon: Flame, label: 'Day streak', value: progress.streakDays, color: 'var(--xp)' },
+    { icon: Trophy, label: 'Questions answered', value: progress.totalTrials, color: 'var(--brand-accent)' },
+    { icon: Target, label: 'Recent accuracy', value: recentAccuracy === null ? '—' : `${recentAccuracy}%`, color: 'var(--good)' },
+  ];
 
   return (
     <div className="space-y-8">
-      {/* Top Hero & Global Telemetry */}
-      <section aria-labelledby="dashboard-heading" className="apple-card p-6 sm:p-8">
-        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
-          <div className="max-w-2xl space-y-2">
-            <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--brand-accent)]">
-              Perceptual Learning & ARTS Scheduler
+      {/* Hero: one obvious thing to do */}
+      <section
+        aria-labelledby="dashboard-heading"
+        className="card relative overflow-hidden p-6 sm:p-8"
+      >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full opacity-20 blur-2xl"
+          style={{ background: 'radial-gradient(circle, var(--brand-accent), transparent 70%)' }}
+        />
+        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-xl space-y-4">
+            <p className="text-[0.8125rem] font-extrabold uppercase tracking-wider text-[var(--brand-accent)]">
+              Dashboard
             </p>
             <h1
               id="dashboard-heading"
               tabIndex={-1}
-              className="text-[1.75rem] font-bold tracking-tight sm:text-[2.125rem]"
+              className="text-[2rem] font-black leading-tight sm:text-[2.5rem]"
             >
-              Dashboard
+              {greeting(progress.totalTrials)}
             </h1>
-            <p className="text-[0.9375rem] text-[var(--text-secondary)]">
-              Train automatic, sub-3.5-second clue recognition across unseen{' '}
-              <strong>Samples</strong>, explicit <strong>Tells</strong>, and
-              covered <strong>Playable Countries</strong>.
+            <p className="text-[1.0625rem] text-[var(--text-secondary)]">
+              Quick 10-question rounds that train you to spot GeoGuessr clues in
+              a flash. We pick the questions you need most.
             </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => onOpenLanguagesSection('smart-weakest')}
-              className="rounded-xl bg-[var(--brand-accent)] px-5 py-2.5 text-[0.9375rem] font-semibold text-white shadow-xs transition hover:opacity-95"
-            >
-              Smart Practice (Weakest Spots)
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpenLanguagesSection()}
-              className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2.5 text-[0.875rem] font-semibold transition hover:opacity-90"
-            >
-              Browse Language Groups
-            </button>
-            <button
-              type="button"
-              onClick={onOpenDataModal}
-              className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2.5 text-[0.875rem] font-medium transition hover:opacity-90"
-            >
-              Backup & Reset
-            </button>
-          </div>
-        </div>
-
-        {/* Summary KPI Strip */}
-        <div className="mt-6 grid grid-cols-2 gap-3.5 border-t border-[var(--border-subtle)] pt-6 sm:grid-cols-4">
-          <div className="rounded-xl bg-[var(--surface-canvas)] p-4 border border-[var(--border-subtle)]">
-            <p className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
-              Total Trials Practiced
-            </p>
-            <p className="mt-1 text-[1.5rem] font-bold tracking-tight">
-              {progress.totalTrials}
-            </p>
-            <p className="mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">
-              {progress.recentTrials.length > 0
-                ? `${recentAccuracy}% recent accuracy`
-                : 'Ready for first session'}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-[var(--surface-canvas)] p-4 border border-[var(--border-subtle)]">
-            <p className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
-              Active Streak & Time
-            </p>
-            <p className="mt-1 text-[1.5rem] font-bold tracking-tight">
-              {progress.streakDays} {progress.streakDays === 1 ? 'day' : 'days'}
-            </p>
-            <p className="mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">
-              {totalMinutes > 0
-                ? `${totalMinutes} min active drill time`
-                : `${Math.round(progress.totalTimeMs / 1000)}s active drill time`}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-[var(--surface-canvas)] p-4 border border-[var(--border-subtle)]">
-            <p className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
-              Mastered & Recognized
-            </p>
-            <p className="mt-1 text-[1.5rem] font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
-              {overallTotals.mastered + overallTotals.recognized}{' '}
-              <span className="text-[0.875rem] font-normal text-[var(--text-secondary)]">
-                / {overallTotals.total}
-              </span>
-            </p>
-            <p className="mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">
-              {overallTotals.mastered} Mastered · {overallTotals.recognized}{' '}
-              Recognized
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-[var(--surface-canvas)] p-4 border border-[var(--border-subtle)]">
-            <p className="text-[0.75rem] font-medium text-[var(--text-secondary)]">
-              Learning & Unseen
-            </p>
-            <p className="mt-1 text-[1.5rem] font-bold tracking-tight text-amber-600 dark:text-amber-400">
-              {overallTotals.learning}{' '}
-              <span className="text-[0.875rem] font-normal text-[var(--text-secondary)]">
-                Learning
-              </span>
-            </p>
-            <p className="mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">
-              {overallTotals.unseen} Unseen skills remaining
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Weakest Spots & Confusion Pair Analytics */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <section
-          aria-labelledby="weakest-skills-heading"
-          className="apple-card flex flex-col justify-between p-6"
-        >
-          <div>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2
-                  id="weakest-skills-heading"
-                  className="text-[1.125rem] font-semibold"
-                >
-                  Weakest Learning Skills
-                </h2>
-                <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                  Skills in Learning state, recent errors, slow responses, or
-                  assisted Guided Breakdowns prioritized by ARTS.
-                </p>
-              </div>
+            <div className="flex flex-wrap gap-3 pt-1">
               <button
                 type="button"
                 onClick={() => onOpenLanguagesSection('smart-weakest')}
-                className="shrink-0 rounded-lg bg-[var(--brand-accent)] px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
+                className="btn btn-primary btn-lg"
               >
-                Drill Weakest →
+                <Play aria-hidden="true" className="h-5 w-5" fill="currentColor" />
+                {progress.totalTrials === 0 ? 'Play your first round' : 'Play a round'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenLanguagesSection('all-mixed')}
+                className="btn btn-secondary btn-lg"
+              >
+                <Sparkles aria-hidden="true" className="h-5 w-5" />
+                Mix it up
               </button>
             </div>
-
-            {weakestSkills.length === 0 ? (
-              <div className="mt-5 rounded-xl border border-dashed border-[var(--border-subtle)] p-5 text-center">
-                <p className="text-[0.875rem] font-medium">
-                  No weak Learning skills flagged yet
-                </p>
-                <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
-                  Practice any Section or click Smart Practice (Weakest Spots)
-                  to begin tracking response speed and accuracy.
-                </p>
-              </div>
-            ) : (
-              <ul className="mt-4 space-y-2.5" role="list">
-                {weakestSkills.map((skill) => (
-                  <li
-                    key={skill.skillId}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3.5 py-2.5 text-[0.8125rem]"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{skill.label}</span>
-                        {skill.sublabel && (
-                          <span className="text-[0.75rem] text-[var(--text-secondary)]">
-                            ({skill.sublabel})
-                          </span>
-                        )}
-                        <MasteryBadge state={skill.mastery} size="xs" />
-                      </div>
-                      <p className="mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">
-                        {skill.accuracyPercent}% unaided accuracy · avg{' '}
-                        {(skill.averageRtMs / 1000).toFixed(1)}s
-                        {skill.assistedCount > 0
-                          ? ` · ${skill.assistedCount} assisted`
-                          : ''}
-                        {skill.confusionCount > 0
-                          ? ` · ${skill.confusionCount} confusions`
-                          : ''}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (skill.section === 'coverage') {
-                          onOpenCoverageSection('world');
-                        } else if (skill.section === 'driving-side') {
-                          onOpenDrivingSideSection('world');
-                        } else if (skill.section === 'domains-currencies') {
-                          onOpenDomainsCurrenciesSection(skill.skillId);
-                        } else {
-                          onOpenLanguagesSection(
-                            skill.groupId ?? 'smart-weakest'
-                          );
-                        }
-                      }}
-                      className="shrink-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
-                    >
-                      Practice
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
-        </section>
 
-        <section
-          aria-labelledby="confusion-heading"
-          className="apple-card flex flex-col justify-between p-6"
-        >
-          <div>
-            <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-6 lg:flex-col lg:items-end">
+            <div className="flex items-center gap-4">
+              <MasteryRing {...overallTotals} size={112} />
               <div>
-                <h2
-                  id="confusion-heading"
-                  className="text-[1.125rem] font-semibold"
-                >
-                  Top Confusion Pairs
-                </h2>
-                <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                  Directed confusions tracked across trials. Confusing a pair
-                  twice triggers a side-by-side Stage 2 Contrast Card.
+                <p className="text-[1.5rem] font-black tabular-nums">
+                  {overallTotals.mastered + overallTotals.recognized}
+                  <span className="text-[1rem] text-[var(--text-secondary)]">
+                    {' '}/ {overallTotals.total}
+                  </span>
+                </p>
+                <p className="text-[0.8125rem] font-bold text-[var(--text-secondary)]">
+                  skills you know
                 </p>
               </div>
-              {confusionPairs.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => onOpenLanguagesSection('smart-weakest')}
-                  className="shrink-0 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
-                >
-                  Resolve Pairs →
-                </button>
-              )}
             </div>
-
-            {confusionPairs.length === 0 ? (
-              <div className="mt-5 rounded-xl border border-dashed border-[var(--border-subtle)] p-5 text-center">
-                <p className="text-[0.875rem] font-medium">
-                  No confusion pairs recorded yet
-                </p>
-                <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
-                  Complete a Languages Speed Drill to see which lookalike
-                  languages you mistake for each other.
-                </p>
-              </div>
-            ) : (
-              <ul className="mt-4 space-y-2.5" role="list">
-                {confusionPairs.map((pair) => (
-                  <li
-                    key={`${pair.expectedId}->${pair.chosenId}`}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3.5 py-2.5 text-[0.8125rem]"
-                  >
-                    <div>
-                      <span>
-                        <strong>{pair.expectedLabel}</strong>{' '}
-                        <span className="text-[var(--text-secondary)]">
-                          mistaken for
-                        </span>{' '}
-                        <strong>{pair.chosenLabel}</strong>
-                      </span>
-                      {pair.groupName && (
-                        <p className="text-[0.75rem] text-[var(--text-secondary)]">
-                          {pair.groupName}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-amber-700 dark:text-amber-300">
-                        {pair.count}×
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onOpenLanguagesSection(
-                            pair.groupId ?? 'smart-weakest'
-                          )
-                        }
-                        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
-                      >
-                        Drill
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
-        </section>
-      </div>
-
-      {/* Sections Grid */}
-      <section aria-labelledby="sections-heading" className="space-y-4">
-        <div className="flex items-baseline justify-between">
-          <h2 id="sections-heading" className="text-[1.25rem] font-semibold">
-            Practice Sections
-          </h2>
-          <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-            4 Mastery States: Unseen ○ · Learning ◐ · Recognized ◕ · Mastered ●
-          </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {SECTION_CARDS.map((card) => {
-            const b = sectionBreakdowns[card.id];
-            return (
-              <div
-                key={card.id}
-                className="apple-card flex flex-col justify-between p-6 transition"
+        <dl className="relative mt-8 grid grid-cols-3 gap-3 border-t border-[var(--border-subtle)] pt-6">
+          {heroStats.map(({ icon: Icon, label, value, color }) => (
+            <div key={label} className="flex flex-col items-center gap-1 text-center sm:flex-row sm:gap-3 sm:text-left">
+              <span
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl"
+                style={{ backgroundColor: `color-mix(in srgb, ${color} 16%, transparent)`, color }}
               >
-                <div>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <h3 className="text-[1.125rem] font-semibold">
-                          {card.title}
-                        </h3>
-                        <span className="rounded-full bg-zinc-500/10 px-2.5 py-0.5 text-[0.75rem] font-medium text-[var(--text-secondary)]">
-                          {b.total} skills
-                        </span>
-                      </div>
-                      <p className="mt-1.5 text-[0.875rem] text-[var(--text-secondary)]">
-                        {card.subtitle}
-                      </p>
-                    </div>
-                    <MasteryRing
-                      unseen={b.unseen}
-                      learning={b.learning}
-                      recognized={b.recognized}
-                      mastered={b.mastered}
-                      total={b.total}
-                    />
-                  </div>
+                <Icon aria-hidden="true" className="h-5 w-5" />
+              </span>
+              <div>
+                <dd className="text-[1.375rem] font-black leading-none tabular-nums">{value}</dd>
+                <dt className="mt-1 text-[0.75rem] font-bold text-[var(--text-secondary)]">{label}</dt>
+              </div>
+            </div>
+          ))}
+        </dl>
+      </section>
 
-                  {/* Mastery State Breakdown Pills */}
-                  <div className="mt-4 grid grid-cols-4 gap-2 rounded-xl bg-[var(--surface-canvas)] p-3 border border-[var(--border-subtle)] text-center">
-                    <div>
-                      <p className="text-[0.6875rem] font-medium text-[var(--text-secondary)]">
-                        ○ Unseen
-                      </p>
-                      <p className="text-[0.9375rem] font-semibold">
-                        {b.unseen}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[0.6875rem] font-medium text-amber-600 dark:text-amber-400">
-                        ◐ Learning
-                      </p>
-                      <p className="text-[0.9375rem] font-semibold text-amber-600 dark:text-amber-400">
-                        {b.learning}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[0.6875rem] font-medium text-sky-600 dark:text-sky-400">
-                        ◕ Recognized
-                      </p>
-                      <p className="text-[0.9375rem] font-semibold text-sky-600 dark:text-sky-400">
-                        {b.recognized}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[0.6875rem] font-medium text-emerald-600 dark:text-emerald-400">
-                        ● Mastered
-                      </p>
-                      <p className="text-[0.9375rem] font-semibold text-emerald-600 dark:text-emerald-400">
-                        {b.mastered}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {card.clueExamples.map((clue) => (
-                      <span
-                        key={clue}
-                        className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2 py-0.5 text-[0.75rem] font-mono text-[var(--text-secondary)]"
-                      >
-                        {clue}
-                      </span>
-                    ))}
+      {/* Section tiles */}
+      <section aria-labelledby="sections-heading" className="space-y-4">
+        <h2 id="sections-heading" className="text-[1.375rem] font-black">
+          Pick a skill to train
+        </h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {SECTION_ORDER.map((id) => {
+            const meta = SECTION_META[id];
+            const b = sectionBreakdowns[id];
+            const Icon = meta.icon;
+            return (
+              <article
+                key={id}
+                className="card group flex flex-col overflow-hidden transition hover:-translate-y-0.5"
+              >
+                <div
+                  className="flex items-center gap-3 px-5 pb-4 pt-5"
+                  style={{
+                    background: `linear-gradient(135deg, color-mix(in srgb, ${meta.color} 22%, transparent), transparent 75%)`,
+                  }}
+                >
+                  <span
+                    className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm"
+                    style={{ backgroundColor: meta.color }}
+                  >
+                    <Icon aria-hidden="true" className="h-6 w-6" strokeWidth={2.5} />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-[1.1875rem] font-black">{meta.title}</h3>
+                    <p className="text-[0.875rem] text-[var(--text-secondary)]">{meta.tagline}</p>
                   </div>
                 </div>
-
-                <div className="mt-5 flex items-center justify-between border-t border-[var(--border-subtle)] pt-4">
-                  <span className="text-[0.8125rem] text-[var(--text-secondary)]">
-                    {b.practicedTrials} trials completed
-                  </span>
+                <div className="flex flex-1 flex-col gap-3 px-5 pb-5">
+                  <MasteryBar {...b} />
+                  <div className="flex items-center justify-between text-[0.8125rem] font-bold text-[var(--text-secondary)]">
+                    <span>
+                      {b.mastered + b.recognized} / {b.total} known
+                    </span>
+                    <span className="chip font-mono">{meta.exampleClue}</span>
+                  </div>
                   <button
                     type="button"
-                    onClick={{
-                      coverage: () => onOpenCoverageSection(),
-                      'driving-side': () => onOpenDrivingSideSection(),
-                      languages: () => onOpenLanguagesSection(),
-                      'domains-currencies': () => onOpenDomainsCurrenciesSection(),
-                    }[card.id]}
-                    className="rounded-lg bg-[var(--brand-accent)] px-4 py-1.5 text-[0.875rem] font-semibold text-white hover:opacity-95"
+                    onClick={openSection[id]}
+                    className="btn mt-auto w-full text-white"
+                    style={{
+                      backgroundColor: meta.color,
+                      borderColor: `color-mix(in srgb, ${meta.color} 75%, black)`,
+                    }}
                   >
-                    Open {card.title} →
+                    <Play aria-hidden="true" className="h-4 w-4" fill="currentColor" />
+                    Play {meta.title}
                   </button>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
       </section>
 
-      {/* Quick Launch Language Groups */}
-      <section
-        aria-labelledby="quick-groups-heading"
-        className="apple-card p-6"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2
-              id="quick-groups-heading"
-              className="text-[1.125rem] font-semibold"
-            >
-              Language Groups Quick Launch
-            </h2>
-            <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-              Jump straight into a confusable Language Group’s Stage 0 Contrast
-              Card or Stage 1 Speed Drill.
+      {/* Needs work */}
+      <section aria-labelledby="weak-heading" className="space-y-4">
+        <h2 id="weak-heading" className="text-[1.375rem] font-black">
+          Needs work
+        </h2>
+        {weakestSkills.length === 0 && confusionPairs.length === 0 ? (
+          <div className="card border-dashed p-6 text-center">
+            <p className="text-[1rem] font-extrabold">No weak spots yet 🎯</p>
+            <p className="mt-1 text-[0.875rem] text-[var(--text-secondary)]">
+              Play a few rounds and the skills you miss or answer slowly will
+              show up here.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onOpenLanguagesSection('smart-weakest')}
-              className="rounded-lg bg-[var(--brand-accent)] px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
-            >
-              Smart Practice (Weakest Spots)
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpenLanguagesSection('all-mixed')}
-              className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
-            >
-              All-Groups Mixed
-            </button>
-          </div>
-        </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="card p-5">
+              <h3 className="text-[1rem] font-extrabold">Weakest skills</h3>
+              {weakestSkills.length === 0 ? (
+                <p className="mt-2 text-[0.875rem] text-[var(--text-secondary)]">Nothing flagged yet.</p>
+              ) : (
+                <ul className="mt-3 space-y-2" role="list">
+                  {weakestSkills.map((skill) => (
+                    <li key={skill.skillId}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (skill.section === 'coverage') onOpenCoverageSection('world');
+                          else if (skill.section === 'driving-side') onOpenDrivingSideSection('world');
+                          else if (skill.section === 'domains-currencies') onOpenDomainsCurrenciesSection(skill.skillId);
+                          else onOpenLanguagesSection(skill.groupId ?? 'smart-weakest');
+                        }}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[var(--surface-elevated)]"
+                      >
+                        <span className="min-w-0">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-extrabold">{skill.label}</span>
+                            <MasteryBadge state={skill.mastery} size="xs" />
+                          </span>
+                          <span className="block text-[0.75rem] font-semibold text-[var(--text-secondary)]">
+                            {skill.accuracyPercent}% right · {(skill.averageRtMs / 1000).toFixed(1)}s avg
+                          </span>
+                        </span>
+                        <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-[var(--text-secondary)]" />
+                        <span className="visually-hidden">Practice</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="card p-5">
+              <h3 className="text-[1rem] font-extrabold">Mix-ups</h3>
+              {confusionPairs.length === 0 ? (
+                <p className="mt-2 text-[0.875rem] text-[var(--text-secondary)]">
+                  No mix-ups yet. Lookalike languages you confuse will appear here.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2" role="list">
+                  {confusionPairs.map((pair) => (
+                    <li key={`${pair.expectedId}->${pair.chosenId}`}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenLanguagesSection(pair.groupId ?? 'smart-weakest')}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[var(--surface-elevated)]"
+                      >
+                        <span className="text-[0.9375rem]">
+                          <strong>{pair.expectedLabel}</strong>{' '}
+                          <span className="text-[var(--text-secondary)]">mistaken for</span>{' '}
+                          <strong>{readableLabel(pair.chosenLabel)}</strong>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="chip !bg-[var(--warn-soft)] !text-[var(--text-primary)]">{pair.count}×</span>
+                          <ChevronRight aria-hidden="true" className="h-5 w-5 text-[var(--text-secondary)]" />
+                          <span className="visually-hidden">Drill</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Language Groups quick launch */}
+      <section aria-labelledby="quick-groups-heading" className="space-y-4">
+        <h2 id="quick-groups-heading" className="text-[1.375rem] font-black">
+          Jump into a Language Group
+        </h2>
+        <div className="flex flex-wrap gap-2.5">
           {LANGUAGE_GROUPS.map((group) => {
-            const groupMastered = group.languageIds.filter(
+            const mastered = group.languageIds.filter(
               (id) => progress.skills[`lang:${id}`]?.mastery === 'mastered'
             ).length;
             return (
@@ -543,16 +327,11 @@ export function DashboardView({
                 key={group.id}
                 type="button"
                 onClick={() => onOpenLanguagesSection(group.id)}
-                className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-4 py-3 text-left transition hover:border-[var(--brand-accent)]"
+                className="btn btn-secondary btn-sm !font-bold"
               >
-                <div>
-                  <p className="text-[0.875rem] font-semibold">{group.name}</p>
-                  <p className="text-[0.75rem] text-[var(--text-secondary)]">
-                    {group.languageIds.length} confusable languages
-                  </p>
-                </div>
-                <span className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[0.75rem] font-medium">
-                  {groupMastered}/{group.languageIds.length} Mastered
+                {group.name}
+                <span className="chip !px-2 !py-0">
+                  {mastered}/{group.languageIds.length}
                 </span>
               </button>
             );

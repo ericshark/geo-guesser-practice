@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react';
+import { ArrowLeft, BookOpen, Lightbulb, Play, Shuffle, Sparkles } from 'lucide-react';
+import { SectionPickerHeader } from './game/SectionPickerHeader.tsx';
 import {
   LANGUAGE_GROUPS,
   LANGUAGE_MAP,
@@ -16,8 +18,14 @@ import type {
   PracticeTrial,
 } from '../engine/practiceEngine.ts';
 import type { ProgressData } from '../storage/index.ts';
+import { AnswerTile, getAnswerTileState } from './game/AnswerTile.tsx';
+import { FeedbackBanner, formatSpeed } from './game/FeedbackBanner.tsx';
+import { RoundHeader } from './game/RoundHeader.tsx';
+import { RoundResults } from './game/RoundResults.tsx';
+import { useRound } from './game/useRound.ts';
 import { HighlightedSampleText, LanguageContrastGrid, TELL_BADGE_CLASSES } from './LanguageContrastGrid.tsx';
-import { MasteryBadge } from './MasteryBadge.tsx';
+import { MASTERY_CONFIG, MasteryBadge } from './MasteryBadge.tsx';
+import { SECTION_META } from './sectionMeta.ts';
 import { WorldMapView } from './WorldMapView.tsx';
 
 interface LanguagesSectionViewProps {
@@ -27,14 +35,24 @@ interface LanguagesSectionViewProps {
   onBackToDashboard: () => void;
 }
 
+const DRILL_MODES: Array<{ id: LanguageDrillMode; label: string; hint: string }> = [
+  { id: 'mixed', label: 'Mixed', hint: 'A bit of everything' },
+  { id: 'samples', label: 'Sentences & signs', hint: 'Read real text' },
+  { id: 'tells', label: 'Tells only', hint: 'Single letters & patterns' },
+  { id: 'bridge', label: 'Language → map', hint: 'Find the countries' },
+];
+
+const META = SECTION_META.languages;
+
 export function LanguagesSectionView({
   engine,
   progress,
   initialGroup,
   onBackToDashboard,
 }: LanguagesSectionViewProps) {
-  const drillModeSelectId = useId();
+  const drillModeLabelId = useId();
   const breakdownHeadingId = useId();
+  const round = useRound();
   const [selectedGroup, setSelectedGroup] =
     useState<LanguageGroupSelectionId | null>(initialGroup ?? null);
   const [drillMode, setDrillMode] = useState<LanguageDrillMode>('mixed');
@@ -79,6 +97,7 @@ export function LanguagesSectionView({
         skipPrime:
           skipPrime || groupId === 'all-mixed' || groupId === 'smart-weakest',
       });
+      round.reset();
       setStage0Prime(engine.getStage0Prime());
       setActiveTrial(engine.getCurrentTrial());
       setActiveBreakdown(null);
@@ -86,7 +105,7 @@ export function LanguagesSectionView({
       setElapsedMs(0);
       setSelectedMapCountryIds([]);
     },
-    [engine]
+    [engine, round.reset]
   );
 
   useEffect(() => {
@@ -99,9 +118,9 @@ export function LanguagesSectionView({
     }
   }, [initialGroup]); // Intentionally run when initialGroup prop changes
 
-  // Unobtrusive fluency response-time bar timer during active unanswered trial
+  // Response-time timer during an active unanswered trial
   useEffect(() => {
-    if (!activeTrial || feedback || stage0Prime) {
+    if (!activeTrial || feedback || stage0Prime || round.showResults) {
       return;
     }
     const start = performance.now();
@@ -109,7 +128,7 @@ export function LanguagesSectionView({
       setElapsedMs(Math.round(performance.now() - start));
     }, 50);
     return () => window.clearInterval(interval);
-  }, [activeTrial, feedback, stage0Prime]);
+  }, [activeTrial, feedback, stage0Prime, round.showResults]);
 
   const handleStartFromPrime = useCallback(async () => {
     const trial = await engine.completeStage0Prime();
@@ -142,14 +161,28 @@ export function LanguagesSectionView({
     setActiveBreakdown(null);
   }, [engine]);
 
+  const recordFeedback = useCallback(
+    (result: LanguageTrialFeedback) => {
+      round.record({
+        correct: result.correct,
+        fluent: result.correct && result.isFluentSpeed && !result.assisted,
+        responseTimeMs: result.responseTimeMs,
+        label: result.languageName,
+        sublabel: result.nativeName,
+      });
+    },
+    [round.record]
+  );
+
   const handleSelectOption = useCallback(
     async (optionId: string) => {
       if (!activeTrial || feedback) return;
       const rt = Math.max(120, elapsedMs || Date.now() - activeTrial.startedAtMs);
       const result = await engine.submitAnswer(optionId, rt);
       setFeedback(result);
+      recordFeedback(result);
     },
-    [activeTrial, elapsedMs, engine, feedback]
+    [activeTrial, elapsedMs, engine, feedback, recordFeedback]
   );
 
   const handleToggleMapCountry = useCallback(
@@ -176,8 +209,9 @@ export function LanguagesSectionView({
       const rt = Math.max(120, elapsedMs || Date.now() - activeTrial.startedAtMs);
       const result = await engine.submitCountryBridgeAnswer(idsToSubmit, rt);
       setFeedback(result);
+      recordFeedback(result);
     },
-    [activeTrial, elapsedMs, engine, feedback, selectedMapCountryIds]
+    [activeTrial, elapsedMs, engine, feedback, recordFeedback, selectedMapCountryIds]
   );
 
   const handleNextTrial = useCallback(() => {
@@ -189,14 +223,29 @@ export function LanguagesSectionView({
     setSelectedMapCountryIds([]);
   }, [engine]);
 
+  // After answering: either the next question or, at the end of a round, results.
+  const handleContinue = useCallback(() => {
+    if (round.isComplete) {
+      round.finish();
+      return;
+    }
+    handleNextTrial();
+  }, [handleNextTrial, round.finish, round.isComplete]);
+
+  const handlePlayAgain = useCallback(() => {
+    round.reset();
+    handleNextTrial();
+  }, [handleNextTrial, round.reset]);
+
   const handleExitToGroupPicker = useCallback(() => {
+    round.reset();
     setSelectedGroup(null);
     setStage0Prime(null);
     setActiveTrial(null);
     setActiveBreakdown(null);
     setFeedback(null);
     setSelectedMapCountryIds([]);
-  }, []);
+  }, [round.reset]);
 
   // Full keyboard navigation: 1..6 for choices, Space or ? for Guided Breakdown, Enter to start/submit/advance, Escape to close overlay or exit
   useEffect(() => {
@@ -207,7 +256,8 @@ export function LanguagesSectionView({
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT' ||
-          target.closest('dialog'))
+          target.closest('dialog') ||
+          target.closest('details'))
       ) {
         return;
       }
@@ -282,9 +332,10 @@ export function LanguagesSectionView({
       }
 
       if (activeTrial && feedback) {
-        if (e.key === 'Enter') {
+        // A focused Continue button already handles Enter via click.
+        if (e.key === 'Enter' && target?.tagName !== 'BUTTON') {
           e.preventDefault();
-          handleNextTrial();
+          handleContinue();
         }
       }
     };
@@ -295,9 +346,9 @@ export function LanguagesSectionView({
     activeBreakdown,
     activeTrial,
     feedback,
+    handleContinue,
     handleDismissGuidedBreakdown,
     handleExitToGroupPicker,
-    handleNextTrial,
     handleRequestGuidedBreakdown,
     handleSelectOption,
     handleStartFromPrime,
@@ -310,181 +361,128 @@ export function LanguagesSectionView({
   // 1. GROUP PICKER SCREEN
   if (!selectedGroup) {
     return (
-      <div className="space-y-6">
-        <div className="apple-card flex flex-col justify-between gap-4 p-6 sm:flex-row sm:items-center">
-          <div>
-            <div className="flex items-center gap-2">
+      <div className="space-y-8">
+        <SectionPickerHeader
+          sectionId="languages"
+          title="Choose a Language Group"
+          description="Lookalike languages are practiced together, so you learn exactly what tells them apart."
+          onBack={onBackToDashboard}
+        />
+
+        {/* Question style */}
+        <div className="space-y-2">
+          <p id={drillModeLabelId} className="text-[0.875rem] font-extrabold text-[var(--text-secondary)]">
+            Question style
+          </p>
+          <div role="radiogroup" aria-labelledby={drillModeLabelId} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {DRILL_MODES.map((mode) => (
               <button
+                key={mode.id}
                 type="button"
-                onClick={onBackToDashboard}
-                className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
+                role="radio"
+                aria-checked={drillMode === mode.id}
+                onClick={() => setDrillMode(mode.id)}
+                className="answer-tile !min-h-0 !flex-col !items-start !gap-0 !py-2.5"
+                data-state={drillMode === mode.id ? 'selected' : 'idle'}
               >
-                ← Dashboard
+                <span className="text-[0.9375rem] font-extrabold">{mode.label}</span>
+                <span className="text-[0.75rem] font-semibold text-[var(--text-secondary)]">{mode.hint}</span>
               </button>
-              <span className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--brand-accent)]">
-                Section · Languages
+            ))}
+          </div>
+        </div>
+
+        {/* Quick play */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => launchGroupSession('smart-weakest', drillMode, true)}
+            className="card group flex items-center gap-4 p-5 text-left transition hover:-translate-y-0.5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--brand-accent)] text-white">
+              <Sparkles aria-hidden="true" className="h-6 w-6" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[1.125rem] font-black">Smart Practice</span>
+              <span className="block text-[0.875rem] text-[var(--text-secondary)]">
+                Your weak spots and mix-ups, across all groups.
               </span>
-            </div>
-            <h1 className="mt-2 text-[1.625rem] font-bold tracking-tight">
-              Choose a Confusable Language Group
-            </h1>
-            <p className="mt-1 text-[0.875rem] text-[var(--text-secondary)]">
-              Practice lookalike scripts and languages together using Stage 0{' '}
-              <strong>Contrast Cards</strong>, Stage 1{' '}
-              <strong>ARTS Interleaved Speed Drills</strong>, Stage 2{' '}
-              <strong>Triggered Contrast Cards</strong>, and Stage 3{' '}
-              <strong>Language → Candidate Countries Bridge</strong>.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2 sm:items-end">
-            <label
-              htmlFor={drillModeSelectId}
-              className="text-[0.75rem] font-medium text-[var(--text-secondary)]"
-            >
-              Drill Question Mix
-            </label>
-            <select
-              id={drillModeSelectId}
-              value={drillMode}
-              onChange={(e) =>
-                setDrillMode(e.target.value as LanguageDrillMode)
-              }
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3 py-1.5 text-[0.875rem] font-medium"
-            >
-              <option value="mixed">
-                Mixed: Samples + Tell Recognition + Country Bridge
-              </option>
-              <option value="samples">Sentences & Sign Text Only</option>
-              <option value="tells">Tell Recognition Micro-Drills Only</option>
-              <option value="bridge">
-                Stage 3 Language → Country Bridge Map Drills
-              </option>
-            </select>
-          </div>
+            </span>
+            <Play aria-hidden="true" className="h-6 w-6 shrink-0 text-[var(--brand-accent)]" fill="currentColor" />
+          </button>
+          <button
+            type="button"
+            onClick={() => launchGroupSession('all-mixed', drillMode, true)}
+            className="card group flex items-center gap-4 p-5 text-left transition hover:-translate-y-0.5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--sec-coverage)] text-white">
+              <Shuffle aria-hidden="true" className="h-6 w-6" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[1.125rem] font-black">All groups mixed</span>
+              <span className="block text-[0.875rem] text-[var(--text-secondary)]">
+                All {LANGUAGES.length} languages, shuffled.
+              </span>
+            </span>
+            <Play aria-hidden="true" className="h-6 w-6 shrink-0 text-[var(--sec-coverage)]" fill="currentColor" />
+          </button>
         </div>
 
-        {/* Smart Practice & All-Groups Mixed Banners */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="apple-card flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center border-l-4 border-l-amber-500">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-[1.0625rem] font-semibold">
-                  Smart Practice (Weakest Spots)
-                </h2>
-                <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-amber-700 dark:text-amber-300">
-                  Adaptive Priority
-                </span>
-              </div>
-              <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                Targets your active Learning skills, recent Guided Breakdowns,
-                and top confusion pairs across groups.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => launchGroupSession('smart-weakest', drillMode, true)}
-              className="shrink-0 rounded-xl bg-[var(--brand-accent)] px-4 py-2 text-[0.875rem] font-semibold text-white hover:opacity-95"
-            >
-              Start Smart Practice →
-            </button>
-          </div>
-
-          <div className="apple-card flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center border-l-4 border-l-[var(--brand-accent)]">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-[1.0625rem] font-semibold">
-                  All-Groups Mixed ({LANGUAGES.length} Languages)
-                </h2>
-                <span className="rounded-full bg-[var(--brand-accent)]/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-[var(--brand-accent)]">
-                  Global Interleaved
-                </span>
-              </div>
-              <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                Schedules across every Language Group using ARTS priority while
-                keeping each question’s choices within its visually confusable
-                group.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => launchGroupSession('all-mixed', drillMode, true)}
-              className="shrink-0 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2 text-[0.875rem] font-semibold hover:border-[var(--brand-accent)]"
-            >
-              Start All-Groups Drill →
-            </button>
-          </div>
-        </div>
-
-        {/* 10 Confusable Language Groups Grid */}
+        {/* Language Groups */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {LANGUAGE_GROUPS.map((group) => {
             const primed = progress.completedPrimes.includes(group.id);
             return (
-              <div
-                key={group.id}
-                className="apple-card flex flex-col justify-between p-5"
-              >
+              <article key={group.id} className="card flex flex-col gap-4 p-5">
                 <div>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-[1.0625rem] font-semibold">
-                        {group.name}
-                      </h2>
-                      <p className="mt-0.5 text-[0.8125rem] text-[var(--text-secondary)]">
-                        {group.description}
-                      </p>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2.5 py-0.5 text-[0.75rem] font-medium border ${
-                        primed
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                          : 'border-[var(--border-subtle)] bg-zinc-500/10 text-[var(--text-secondary)]'
-                      }`}
-                    >
-                      {primed ? '✓ Prime Reviewed' : 'Stage 0 Prime Ready'}
-                    </span>
-                  </div>
-
-                  {/* Languages list with live Mastery State */}
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {group.languageIds.map((langId) => {
-                      const lang = LANGUAGE_MAP[langId];
-                      const mastery =
-                        progress.skills[`lang:${langId}`]?.mastery ?? 'unseen';
-                      return (
-                        <div
-                          key={langId}
-                          className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1.5 text-[0.8125rem]"
-                        >
-                          <span className="font-medium">{lang.name}</span>
-                          <span className="text-[0.75rem] text-[var(--text-secondary)]">
-                            {lang.nativeName}
-                          </span>
-                          <MasteryBadge state={mastery} size="xs" />
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <h2 className="text-[1.125rem] font-black">{group.name}</h2>
+                  <p className="mt-0.5 text-[0.875rem] text-[var(--text-secondary)]">
+                    {group.description}
+                  </p>
                 </div>
 
-                <div className="mt-5 flex flex-wrap items-center justify-end gap-2.5 border-t border-[var(--border-subtle)] pt-4">
+                <ul className="flex flex-wrap gap-2" role="list">
+                  {group.languageIds.map((langId) => {
+                    const lang = LANGUAGE_MAP[langId];
+                    const mastery = progress.skills[`lang:${langId}`]?.mastery ?? 'unseen';
+                    return (
+                      <li
+                        key={langId}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.8125rem] font-bold"
+                        title={`${lang.name} (${lang.nativeName}) · ${MASTERY_CONFIG[mastery].label}`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: MASTERY_CONFIG[mastery].color }}
+                        />
+                        {lang.name}
+                        <span className="visually-hidden">: {MASTERY_CONFIG[mastery].label}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                <div className="mt-auto flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => launchGroupSession(group.id, drillMode, true)}
-                    className="rounded-lg border border-[var(--border-subtle)] px-3.5 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
+                    onClick={() => launchGroupSession(group.id, drillMode, primed)}
+                    className="btn btn-primary flex-1"
                   >
-                    Skip to Speed Drill
+                    <Play aria-hidden="true" className="h-4 w-4" fill="currentColor" />
+                    Play
                   </button>
                   <button
                     type="button"
                     onClick={() => launchGroupSession(group.id, drillMode, false)}
-                    className="rounded-lg bg-[var(--brand-accent)] px-4 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
+                    className="btn btn-secondary"
+                    title="Compare these languages side by side before playing"
                   >
-                    Stage 0 Prime & Drill →
+                    <BookOpen aria-hidden="true" className="h-4 w-4" />
+                    {primed ? 'Review study card' : 'Study card first'}
                   </button>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
@@ -492,47 +490,39 @@ export function LanguagesSectionView({
     );
   }
 
-  // 2. STAGE 0 QUICK PRIME (CONTRAST CARD)
+  // 2. STUDY CARD (Contrast Card prime before a Language Group)
   if (stage0Prime) {
     return (
       <div className="space-y-6">
-        <div className="apple-card p-6">
+        <div className="card p-6">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleExitToGroupPicker}
-                  className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
-                >
-                  ← Language Groups
-                </button>
-                <span className="rounded-full bg-[var(--brand-accent)]/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-[var(--brand-accent)]">
-                  Stage 0 Quick Prime · Contrast Card
-                </span>
-              </div>
-              <h1 className="mt-2 text-[1.5rem] font-bold tracking-tight">
-                {stage0Prime.groupName} — Side-by-Side Contrast Card
+              <button type="button" onClick={handleExitToGroupPicker} className="btn btn-ghost btn-sm -ml-2">
+                <ArrowLeft aria-hidden="true" className="h-4 w-4" /> Language Groups
+              </button>
+              <p className="mt-2 text-[0.8125rem] font-extrabold uppercase tracking-wider text-[var(--brand-accent)]">
+                Study card · Contrast Card
+              </p>
+              <h1 className="text-[1.625rem] font-black">
+                {stage0Prime.groupName}: spot the difference
               </h1>
-              <p className="mt-1 text-[0.875rem] text-[var(--text-secondary)]">
+              <p className="mt-1 text-[0.9375rem] text-[var(--text-secondary)]">
                 {stage0Prime.primeSummary}
               </p>
             </div>
 
             <div className="flex shrink-0 flex-wrap items-center gap-2.5">
-              <button
-                type="button"
-                onClick={handleSkipPrime}
-                className="rounded-xl border border-[var(--border-subtle)] px-4 py-2 text-[0.875rem] font-medium hover:bg-zinc-500/10"
-              >
-                Skip Prime
+              <button type="button" onClick={handleSkipPrime} className="btn btn-secondary">
+                Skip
               </button>
               <button
                 type="button"
                 onClick={() => void handleStartFromPrime()}
-                className="rounded-xl bg-[var(--brand-accent)] px-5 py-2.5 text-[0.875rem] font-semibold text-white hover:opacity-95"
+                className="btn btn-primary btn-lg"
               >
-                Start Stage 1 Speed Drill (Enter) →
+                <Play aria-hidden="true" className="h-5 w-5" fill="currentColor" />
+                I&apos;m ready
+                <kbd className="hidden text-[0.75rem] opacity-80 sm:inline">Enter</kbd>
               </button>
             </div>
           </div>
@@ -543,18 +533,33 @@ export function LanguagesSectionView({
     );
   }
 
-  // 3. STAGE 1 ARTS SPEED DRILL, STAGE 2 TRIGGERED CONTRAST CARD, & STAGE 3 COUNTRY BRIDGE
   if (!activeTrial) {
     return null;
   }
 
-  const sessionStats = engine.getSessionStats();
+  // Friendly round title (the engine's groupName carries internal stage labels).
+  const roundTitle =
+    selectedGroup === 'smart-weakest'
+      ? 'Smart Practice'
+      : selectedGroup === 'all-mixed'
+        ? 'All groups mixed'
+        : (LANGUAGE_GROUPS.find((g) => g.id === selectedGroup)?.name ?? 'Languages');
+
+  // 3. ROUND RESULTS
+  if (round.showResults) {
+    return (
+      <RoundResults
+        sectionLabel={roundTitle}
+        summary={round.summary}
+        onPlayAgain={handlePlayAgain}
+        onBack={handleExitToGroupPicker}
+        backLabel="Language Groups"
+      />
+    );
+  }
+
+  // 4. PLAY SCREEN
   const displayRt = feedback ? feedback.responseTimeMs : elapsedMs;
-  const fluencyRatio = Math.min(
-    1,
-    displayRt / activeTrial.fluencyThresholdMs
-  );
-  const isUnderFluencyThreshold = displayRt <= activeTrial.fluencyThresholdMs;
   const currentMastery =
     progress.skills[activeTrial.skillId]?.mastery ?? 'unseen';
 
@@ -569,205 +574,100 @@ export function LanguagesSectionView({
         ? activeTrial.bridgePrompt.matchedTells
         : [];
 
+  const kindLabel =
+    activeTrial.kind === 'triggered-contrast'
+      ? 'Mix-up check · Contrast Card'
+      : activeTrial.kind === 'country-bridge'
+        ? 'Language → map'
+        : activeTrial.kind === 'tell-recognition'
+          ? 'Spot the Tell'
+          : activeTrial.sample.kind === 'sign'
+            ? 'Street sign'
+            : 'Sentence';
+
+  const questionText =
+    activeTrial.kind === 'triggered-contrast'
+      ? 'Which language is which?'
+      : activeTrial.kind === 'country-bridge'
+        ? `Where would you see ${activeTrial.bridgePrompt?.languageName ?? 'this'} on signs?`
+        : activeTrial.kind === 'tell-recognition'
+          ? 'Which language uses this?'
+          : 'Which language is this?';
+
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
-      {/* Drill Header & Calm Fluency Bar */}
-      <div className="apple-card p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
+    <div className="mx-auto max-w-3xl space-y-5">
+      <RoundHeader
+        title={roundTitle}
+        subtitle={activeTrial.isFollowUp ? `${kindLabel} · follow-up` : kindLabel}
+        answered={round.answered}
+        roundLength={round.roundLength}
+        streak={round.streak}
+        elapsedMs={displayRt}
+        fluencyMs={activeTrial.fluencyThresholdMs}
+        onExit={handleExitToGroupPicker}
+        showingFeedback={Boolean(feedback)}
+        actions={
+          selectedGroup !== 'all-mixed' && selectedGroup !== 'smart-weakest' ? (
             <button
               type="button"
-              onClick={handleExitToGroupPicker}
-              className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
+              onClick={() => launchGroupSession(selectedGroup, drillMode, false)}
+              className="btn btn-ghost btn-sm"
+              title="View Contrast Card (restarts the round)"
             >
-              ← Groups (Esc)
+              <BookOpen aria-hidden="true" className="h-4 w-4" />
+              <span className="hidden sm:inline">Study card</span>
             </button>
-            <div>
-              <h1 className="text-[1rem] font-semibold">
-                {activeTrial.groupName}
-              </h1>
-              <p className="text-[0.75rem] text-[var(--text-secondary)]">
-                {activeTrial.kind === 'triggered-contrast'
-                  ? `Stage 2 Triggered Contrast Card · Trial #${activeTrial.trialNumber}`
-                  : activeTrial.kind === 'country-bridge'
-                    ? `Stage 3 Language → Country Bridge · Trial #${activeTrial.trialNumber}`
-                    : activeTrial.isFollowUp
-                      ? `Guided Breakdown Follow-Up Drill · Trial #${activeTrial.trialNumber}`
-                      : `Stage 1 ARTS Interleaved Speed Drill · Trial #${activeTrial.trialNumber}`}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 text-[0.8125rem]">
-            {selectedGroup !== 'all-mixed' &&
-              selectedGroup !== 'smart-weakest' && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    launchGroupSession(selectedGroup, drillMode, false)
-                  }
-                  className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[0.75rem] font-medium hover:bg-zinc-500/10"
-                >
-                  View Contrast Card
-                </button>
-              )}
-            <span className="rounded-lg bg-[var(--surface-canvas)] px-2.5 py-1 border border-[var(--border-subtle)]">
-              Accuracy:{' '}
-              <strong>
-                {sessionStats.trialsCompleted > 0
-                  ? `${Math.round(
-                      (sessionStats.correctCount /
-                        sessionStats.trialsCompleted) *
-                        100
-                    )}%`
-                  : '—'}
-              </strong>
-            </span>
-            <span className="rounded-lg bg-[var(--surface-canvas)] px-2.5 py-1 border border-[var(--border-subtle)]">
-              Fluent:{' '}
-              <strong>
-                {sessionStats.fluentCount}/{sessionStats.trialsCompleted}
-              </strong>
-            </span>
-          </div>
-        </div>
-
-        {/* Non-punishing Fluency Indicator Bar */}
-        <div className="mt-3.5">
-          <div className="flex items-center justify-between text-[0.75rem] text-[var(--text-secondary)]">
-            <span>
-              Fluency window ({activeTrial.fluencyThresholdMs / 1000}s target
-              for automaticity)
-            </span>
-            <span className="font-mono">
-              {(displayRt / 1000).toFixed(1)}s{' '}
-              {isUnderFluencyThreshold ? '· Automatic pace' : '· Inspection pace'}
-            </span>
-          </div>
-          <div
-            role="progressbar"
-            aria-label="Fluency response time indicator"
-            aria-valuemin={0}
-            aria-valuemax={activeTrial.fluencyThresholdMs}
-            aria-valuenow={Math.min(displayRt, activeTrial.fluencyThresholdMs)}
-            className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-500/15"
-          >
-            <div
-              className={`h-full transition-all duration-75 ${
-                isUnderFluencyThreshold
-                  ? 'bg-[var(--brand-accent)]'
-                  : 'bg-amber-500'
-              }`}
-              style={{ width: `${Math.round(fluencyRatio * 100)}%` }}
-            />
-          </div>
-        </div>
-      </div>
+          ) : null
+        }
+      />
 
       {/* Prompt Card */}
-      <div className="apple-card p-6 sm:p-8 space-y-5">
+      <div className="card space-y-5 p-5 sm:p-7" key={activeTrial.trialNumber}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-3 py-1 text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-              {activeTrial.kind === 'triggered-contrast'
-                ? '⇄ Stage 2 Triggered Contrast Card'
-                : activeTrial.kind === 'country-bridge'
-                  ? '🌐 Stage 3 Language → Country Bridge'
-                  : activeTrial.kind === 'tell-recognition'
-                    ? '◆ Tell Recognition Micro-Question'
-                    : activeTrial.sample.kind === 'sign'
-                      ? '▣ Street / Shop Sign Text'
-                      : '¶ Authentic Sentence Sample'}
-            </span>
-            {activeTrial.isFollowUp && (
-              <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-indigo-700 dark:text-indigo-300">
-                Reinforcement Follow-Up
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            {!feedback && activeTrial.kind !== 'triggered-contrast' && (
-              <button
-                type="button"
-                aria-expanded={Boolean(activeBreakdown)}
-                onClick={handleRequestGuidedBreakdown}
-                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[0.8125rem] font-semibold text-amber-800 dark:text-amber-200 transition hover:bg-amber-500/20"
-              >
-                Show me what to look for (? / Space)
-              </button>
-            )}
-            {feedback ? (
-              <MasteryBadge state={feedback.newMastery} />
-            ) : (
-              <MasteryBadge state={currentMastery} />
-            )}
-          </div>
+          <h2 className="text-[1.25rem] font-black">{questionText}</h2>
+          <MasteryBadge state={feedback ? feedback.newMastery : currentMastery} size="xs" />
         </div>
 
-        {/* STAGE 2 TRIGGERED SIDE-BY-SIDE CONTRAST CARD BODY */}
         {activeTrial.kind === 'triggered-contrast' &&
         activeTrial.triggeredContrast ? (
           <div className="space-y-4">
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-[0.875rem]">
-              <p className="font-semibold text-amber-900 dark:text-amber-200">
-                Confusion Pair Triggered ({activeTrial.triggeredContrast.confusionCount}
-                × recent confusion):{' '}
-                {activeTrial.triggeredContrast.leftSide.name} vs{' '}
-                {activeTrial.triggeredContrast.rightSide.name}
-              </p>
-              <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                Compare both Samples side by side with their distinguishing{' '}
-                <strong>Tells</strong> highlighted below, then select the
-                matching language assignment to boost priority for both skills.
-              </p>
-            </div>
+            <p className="rounded-2xl bg-[var(--warn-soft)] p-3.5 text-[0.875rem] font-semibold">
+              You&apos;ve mixed up <strong>{activeTrial.triggeredContrast.leftSide.name}</strong> and{' '}
+              <strong>{activeTrial.triggeredContrast.rightSide.name}</strong>{' '}
+              {activeTrial.triggeredContrast.confusionCount}× recently. Compare
+              the highlighted Tells, then match each side.
+            </p>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {[
-                {
-                  slotLabel: 'Left Sample',
-                  side: activeTrial.triggeredContrast.leftSide,
-                },
-                {
-                  slotLabel: 'Right Sample',
-                  side: activeTrial.triggeredContrast.rightSide,
-                },
+                { slotLabel: 'Left Sample', side: activeTrial.triggeredContrast.leftSide },
+                { slotLabel: 'Right Sample', side: activeTrial.triggeredContrast.rightSide },
               ].map(({ slotLabel, side }) => (
                 <div
                   key={side.skillId}
-                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4 space-y-3"
+                  className="space-y-3 rounded-2xl border-2 border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="rounded-md bg-[var(--brand-accent)]/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-[var(--brand-accent)]">
+                    <span className="chip !bg-[var(--brand-soft)] !text-[var(--brand-accent)]">
                       {slotLabel}
                     </span>
-                    <span className="text-[0.75rem] text-[var(--text-secondary)]">
-                      Script: {side.script}
+                    <span className="text-[0.75rem] font-semibold text-[var(--text-secondary)]">
+                      {side.script}
                     </span>
                   </div>
 
-                  <p
-                    lang={side.languageId}
-                    className="text-[1.1875rem] font-medium leading-relaxed"
-                  >
-                    <HighlightedSampleText
-                      sample={side.sample}
-                      matches={side.matchedTells}
-                    />
+                  <p lang={side.languageId} className="text-[1.25rem] font-bold leading-relaxed">
+                    <HighlightedSampleText sample={side.sample} matches={side.matchedTells} />
                   </p>
-                  <p className="text-[0.8125rem] text-[var(--text-secondary)] italic">
+                  <p className="text-[0.8125rem] italic text-[var(--text-secondary)]">
                     “{side.sample.translation}”
                   </p>
 
-                  <div className="space-y-1.5 border-t border-[var(--border-subtle)] pt-2.5 text-[0.75rem]">
-                    <p className="font-semibold text-[var(--text-secondary)]">
-                      Distinguishing Tells ({side.name}):
-                    </p>
+                  <div className="space-y-1.5 border-t border-[var(--border-subtle)] pt-2.5 text-[0.8125rem]">
                     {side.tells.slice(0, 2).map((tell, idx) => (
                       <div key={tell.id} className="flex items-start gap-2">
                         <span
-                          className={`shrink-0 rounded-xs border px-1.5 py-0.5 font-mono font-semibold ${
+                          className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono font-semibold ${
                             TELL_BADGE_CLASSES[idx % TELL_BADGE_CLASSES.length]
                           }`}
                         >
@@ -779,7 +679,7 @@ export function LanguagesSectionView({
                       </div>
                     ))}
                     <p className="pt-1 text-[var(--text-secondary)]">
-                      <strong>Contrast rule:</strong> {side.contrastNote}
+                      <strong>Rule of thumb:</strong> {side.contrastNote}
                     </p>
                   </div>
                 </div>
@@ -788,39 +688,22 @@ export function LanguagesSectionView({
           </div>
         ) : activeTrial.kind === 'country-bridge' && activeTrial.bridgePrompt ? (
           <div className="space-y-4" data-testid="country-bridge-prompt">
-            <div className="rounded-xl border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/8 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--brand-accent)]">
-                    Stage 3 Language → Candidate Countries Bridge
-                  </span>
-                  <h2 className="mt-0.5 text-[1.25rem] font-bold">
-                    {activeTrial.bridgePrompt.languageName}{' '}
-                    <span className="font-normal text-[var(--text-secondary)]">
-                      ({activeTrial.bridgePrompt.nativeName} ·{' '}
-                      {activeTrial.bridgePrompt.script})
-                    </span>
-                  </h2>
-                </div>
-              </div>
-              <p className="mt-1.5 text-[0.875rem] text-[var(--text-secondary)]">
-                Click or select all Street View-covered{' '}
-                <strong>Candidate Countries</strong> where{' '}
-                <strong>{activeTrial.bridgePrompt.languageName}</strong> appears
-                on road signs. Exclude countries with{' '}
-                <code>coverageTier === &apos;none&apos;</code>.
+            <div className="rounded-2xl bg-[var(--brand-soft)] p-4">
+              <p className="text-[1.125rem] font-black">
+                {activeTrial.bridgePrompt.languageName}{' '}
+                <span className="font-semibold text-[var(--text-secondary)]">
+                  ({activeTrial.bridgePrompt.nativeName} · {activeTrial.bridgePrompt.script})
+                </span>
               </p>
-              <div className="mt-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3">
-                <p
-                  lang={activeTrial.languageId}
-                  className="text-[1.125rem] font-medium leading-relaxed"
-                >
-                  <HighlightedSampleText
-                    sample={activeTrial.sample}
-                    matches={promptHighlightMatches}
-                  />
+              <p className="mt-1 text-[0.875rem] text-[var(--text-secondary)]">
+                Tap every country with Street View coverage where this language
+                appears on road signs. Skip countries with no coverage.
+              </p>
+              <div className="mt-3 rounded-xl bg-[var(--surface-card)] p-3">
+                <p lang={activeTrial.languageId} className="text-[1.125rem] font-bold leading-relaxed">
+                  <HighlightedSampleText sample={activeTrial.sample} matches={promptHighlightMatches} />
                 </p>
-                <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)] italic">
+                <p className="mt-1 text-[0.75rem] italic text-[var(--text-secondary)]">
                   “{activeTrial.sample.translation}”
                 </p>
               </div>
@@ -836,17 +719,14 @@ export function LanguagesSectionView({
               ariaLabel={`Select Street View Candidate Countries for ${activeTrial.bridgePrompt.languageName}`}
             />
 
-            {/* Selected Countries Action Bar */}
             {!feedback && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[var(--surface-elevated)] p-3.5">
                 <div className="flex flex-wrap items-center gap-1.5 text-[0.8125rem]">
-                  <span className="font-semibold text-[var(--text-secondary)]">
+                  <span className="font-extrabold text-[var(--text-secondary)]">
                     Selected ({selectedMapCountryIds.length}):
                   </span>
                   {selectedMapCountryIds.length === 0 ? (
-                    <span className="text-[var(--text-secondary)]">
-                      None yet — click countries or territory pills on the map above
-                    </span>
+                    <span className="text-[var(--text-secondary)]">Nothing yet — tap the map</span>
                   ) : (
                     selectedMapCountryIds.map((id) => {
                       const country = PLAYABLE_COUNTRY_MAP[id];
@@ -855,7 +735,7 @@ export function LanguagesSectionView({
                           key={`selected-chip-${id}`}
                           type="button"
                           onClick={() => handleToggleMapCountry(id)}
-                          className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-accent)]/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-[var(--brand-accent)] hover:bg-[var(--brand-accent)]/25"
+                          className="chip !bg-[var(--brand-soft)] !text-[var(--brand-accent)] hover:opacity-80"
                         >
                           <span>{country?.name ?? id.toUpperCase()}</span>
                           <span aria-hidden="true">×</span>
@@ -867,11 +747,7 @@ export function LanguagesSectionView({
 
                 <div className="flex items-center gap-2">
                   {selectedMapCountryIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMapCountryIds([])}
-                      className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
-                    >
+                    <button type="button" onClick={() => setSelectedMapCountryIds([])} className="btn btn-ghost btn-sm">
                       Clear
                     </button>
                   )}
@@ -879,46 +755,38 @@ export function LanguagesSectionView({
                     type="button"
                     data-testid="submit-country-bridge-btn"
                     onClick={() => void handleSubmitCountryBridge()}
-                    className="rounded-xl bg-[var(--brand-accent)] px-4 py-2 text-[0.875rem] font-semibold text-white hover:opacity-95"
+                    className="btn btn-primary"
                   >
-                    Submit Map Selection (Enter) →
+                    Check answer
+                    <kbd className="hidden text-[0.75rem] opacity-80 sm:inline">Enter</kbd>
                   </button>
                 </div>
               </div>
             )}
           </div>
         ) : activeTrial.kind === 'tell-recognition' && activeTrial.tellPrompt ? (
-          <div className="space-y-3">
-            <p className="text-[0.875rem] font-medium text-[var(--text-secondary)]">
-              Which language in this group is identified by this diagnostic{' '}
-              <strong>Tell</strong>?
+          <div className="rounded-2xl bg-[var(--surface-elevated)] p-8 text-center">
+            <p className="font-mono text-[2.25rem] font-black tracking-wide sm:text-[2.75rem]">
+              {activeTrial.tellPrompt.pattern}
             </p>
-            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-6 text-center">
-              <p className="font-mono text-[1.75rem] font-bold tracking-wide sm:text-[2.125rem]">
-                {activeTrial.tellPrompt.pattern}
-              </p>
-              <p className="mt-2 text-[0.875rem] text-[var(--text-secondary)]">
-                Script family: {activeTrial.tellPrompt.script}
-              </p>
-            </div>
+            <p className="mt-2 text-[0.875rem] font-semibold text-[var(--text-secondary)]">
+              {activeTrial.tellPrompt.script} script
+            </p>
           </div>
         ) : (
           <div
-            className={`rounded-xl border p-6 ${
+            className={`rounded-2xl p-6 text-center sm:p-8 ${
               activeTrial.sample.kind === 'sign'
-                ? 'border-2 border-[var(--border-subtle)] bg-[var(--surface-canvas)] tracking-wide'
-                : 'border-[var(--border-subtle)] bg-[var(--surface-canvas)]'
+                ? 'border-4 border-[var(--border-strong)] bg-[var(--surface-elevated)] tracking-wide'
+                : 'bg-[var(--surface-elevated)]'
             }`}
           >
             <p
               lang={shouldHighlightPromptTells ? activeTrial.languageId : undefined}
-              className="text-[1.375rem] font-medium leading-relaxed sm:text-[1.625rem]"
+              className="text-[1.625rem] font-bold leading-relaxed sm:text-[2rem]"
             >
               {shouldHighlightPromptTells ? (
-                <HighlightedSampleText
-                  sample={activeTrial.sample}
-                  matches={promptHighlightMatches}
-                />
+                <HighlightedSampleText sample={activeTrial.sample} matches={promptHighlightMatches} />
               ) : (
                 activeTrial.sample.text
               )}
@@ -926,42 +794,43 @@ export function LanguagesSectionView({
           </div>
         )}
 
-        {/* ON-DEMAND GUIDED BREAKDOWN OVERLAY ON CURRENT PROMPT */}
+        {/* Hint (Guided Breakdown) */}
+        {!feedback && !activeBreakdown && activeTrial.kind !== 'triggered-contrast' && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              aria-expanded={false}
+              onClick={handleRequestGuidedBreakdown}
+              className="btn btn-ghost btn-sm !text-[var(--warn)]"
+            >
+              <Lightbulb aria-hidden="true" className="h-4 w-4" />
+              Show me what to look for
+              <kbd className="hidden text-[0.6875rem] opacity-70 sm:inline">Space</kbd>
+            </button>
+          </div>
+        )}
+
         {activeBreakdown && !feedback && (
           <section
             aria-labelledby={breakdownHeadingId}
-            className="rounded-2xl border-2 border-amber-500/40 bg-[var(--surface-elevated)] p-5 space-y-4 shadow-sm"
+            className="anim-rise space-y-4 rounded-2xl border-2 border-[var(--warn)] bg-[var(--warn-soft)] p-5"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-subtle)] pb-3.5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[0.75rem] font-semibold text-amber-800 dark:text-amber-200">
-                    Guided Breakdown · Assisted Exposure
-                  </span>
-                  <span className="text-[0.75rem] text-[var(--text-secondary)]">
-                    Queued {activeBreakdown.queuedFollowUps} follow-up drills
-                    after spacing delay D = 2
-                  </span>
-                </div>
-                <h2
-                  id={breakdownHeadingId}
-                  className="mt-1.5 text-[1.125rem] font-bold"
-                >
-                  What to look for: {activeBreakdown.languageName} (
-                  {activeBreakdown.nativeName})
+                <p className="flex items-center gap-1.5 text-[0.75rem] font-extrabold uppercase tracking-wider">
+                  <Lightbulb aria-hidden="true" className="h-4 w-4" /> Guided Breakdown · counts as a hint
+                </p>
+                <h2 id={breakdownHeadingId} className="mt-1 text-[1.125rem] font-black">
+                  It&apos;s {activeBreakdown.languageName} ({activeBreakdown.nativeName})
                 </h2>
-                <p className="text-[0.8125rem] text-[var(--text-secondary)] italic">
-                  Translation: “{activeBreakdown.translation}”
+                <p className="text-[0.8125rem] italic text-[var(--text-secondary)]">
+                  “{activeBreakdown.translation}”
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleDismissGuidedBreakdown}
-                  className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.75rem] font-medium hover:bg-zinc-500/10"
-                >
-                  Hide Overlay (Esc)
+                <button type="button" onClick={handleDismissGuidedBreakdown} className="btn btn-ghost btn-sm">
+                  Hide
                 </button>
                 <button
                   type="button"
@@ -974,495 +843,305 @@ export function LanguagesSectionView({
                       void handleSelectOption(activeBreakdown.skillId);
                     }
                   }}
-                  className="rounded-lg bg-[var(--brand-accent)] px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
+                  className="btn btn-primary btn-sm"
                 >
-                  {activeTrial.kind === 'country-bridge'
-                    ? `Got it — Select Candidate Countries (Enter) →`
-                    : `Got it — Select ${activeBreakdown.languageName} (Enter) →`}
+                  Got it
+                  <kbd className="hidden text-[0.6875rem] opacity-80 sm:inline">Enter</kbd>
                 </button>
               </div>
             </div>
 
-            {/* 1. Highlighted Tells or Structural/Gestalt Clues */}
             <div className="space-y-2.5">
-              <h3 className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                1. Diagnostic Tells & Clues on This Prompt
-              </h3>
+              <h3 className="text-[0.8125rem] font-extrabold">What gives it away</h3>
               {activeBreakdown.matchedTells.length > 0 ? (
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                   {activeBreakdown.matchedTells.map((match) => (
-                    <div
-                      key={match.tellId}
-                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3 text-[0.8125rem]"
-                    >
+                    <div key={match.tellId} className="rounded-xl bg-[var(--surface-card)] p-3 text-[0.8125rem]">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
                           className={`rounded-md border px-2 py-0.5 font-mono text-[0.75rem] font-semibold ${
-                            TELL_BADGE_CLASSES[
-                              match.colorIndex % TELL_BADGE_CLASSES.length
-                            ]
+                            TELL_BADGE_CLASSES[match.colorIndex % TELL_BADGE_CLASSES.length]
                           }`}
                         >
                           {match.spans.map((s) => s.text).join(', ')}
                         </span>
-                        <span className="font-semibold">{match.label}</span>
+                        <span className="font-bold">{match.label}</span>
                       </div>
-                      <p className="mt-1 text-[var(--text-secondary)]">
-                        {match.explanation}
-                      </p>
+                      <p className="mt-1 text-[var(--text-secondary)]">{match.explanation}</p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3.5 text-[0.8125rem]">
-                  <p className="font-semibold">
-                    Structural / Gestalt Clue (No single-character Tell in this
-                    short Sample):
-                  </p>
+                <div className="rounded-xl bg-[var(--surface-card)] p-3.5 text-[0.8125rem]">
+                  <p className="font-bold">No single-letter Tell here — look at the overall pattern:</p>
                   {activeBreakdown.structuralClue && (
-                    <p className="mt-1 text-[var(--text-secondary)]">
-                      {activeBreakdown.structuralClue}
-                    </p>
+                    <p className="mt-1 text-[var(--text-secondary)]">{activeBreakdown.structuralClue}</p>
                   )}
-                  <p className="mt-1 text-[var(--text-secondary)]">
-                    {activeBreakdown.gestaltNote}
-                  </p>
+                  <p className="mt-1 text-[var(--text-secondary)]">{activeBreakdown.gestaltNote}</p>
                 </div>
               )}
               <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                <strong>Group contrast rule:</strong>{' '}
-                {activeBreakdown.contrastNote}
+                <strong>Rule of thumb:</strong> {activeBreakdown.contrastNote}
               </p>
             </div>
 
-            {/* 2. Distractor Elimination */}
             {activeBreakdown.distractorEliminations.length > 0 && (
               <div className="space-y-2">
-                <h3 className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                  2. Why Each Distractor Option Is Ruled Out
-                </h3>
+                <h3 className="text-[0.8125rem] font-extrabold">Why it isn&apos;t the others</h3>
                 <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="list">
                   {activeBreakdown.distractorEliminations.map((elim) => (
-                    <li
-                      key={elim.optionId}
-                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3 text-[0.75rem]"
-                    >
-                      <p className="font-semibold">
+                    <li key={elim.optionId} className="rounded-xl bg-[var(--surface-card)] p-3 text-[0.8125rem]">
+                      <p className="font-bold">
                         ✗ {elim.languageName}{' '}
-                        <span className="font-normal text-[var(--text-secondary)]">
-                          ({elim.nativeName})
-                        </span>
+                        <span className="font-normal text-[var(--text-secondary)]">({elim.nativeName})</span>
                       </p>
-                      <p className="mt-1 text-[var(--text-secondary)]">
-                        {elim.reason}
-                      </p>
+                      <p className="mt-1 text-[var(--text-secondary)]">{elim.reason}</p>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {/* 3. Candidate Countries */}
-            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3 text-[0.75rem]">
-              <span className="font-semibold text-[var(--text-secondary)]">
-                Covered Candidate Countries:
-              </span>
+            <div className="flex flex-wrap items-center gap-1.5 text-[0.75rem]">
+              <span className="font-extrabold text-[var(--text-secondary)]">Seen in:</span>
               {activeBreakdown.candidateCountries.map((country) => (
-                <span
-                  key={country.id}
-                  className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2 py-0.5 font-medium"
-                >
-                  {country.name} ({country.coverageTier}, {country.drivingSide})
+                <span key={country.id} className="chip !bg-[var(--surface-card)]">
+                  {country.name}
                 </span>
               ))}
             </div>
           </section>
         )}
 
-        {/* Choice Buttons (1..6 or 1..2 for Stage 1 & Stage 2 trials) */}
+        {/* Answer choices */}
         {activeTrial.kind !== 'country-bridge' && (
           <div
             className={`grid grid-cols-1 gap-3 ${
-              activeTrial.kind === 'triggered-contrast'
-                ? 'sm:grid-cols-2'
-                : 'sm:grid-cols-2 md:grid-cols-3'
+              activeTrial.kind === 'triggered-contrast' ? 'sm:grid-cols-2' : 'sm:grid-cols-2'
             }`}
             role="group"
             aria-label="Language choices"
           >
-            {activeTrial.options.map((option) => {
-              const isExpected = feedback && option.id === feedback.skillId;
-              const isChosenWrong =
-                feedback &&
-                !feedback.correct &&
-                option.id === feedback.chosenOptionId;
-
-              let buttonStyle =
-                'border-[var(--border-subtle)] bg-[var(--surface-canvas)] hover:border-[var(--brand-accent)]';
-              if (isExpected) {
-                buttonStyle =
-                  'border-emerald-500 bg-emerald-500/15 text-emerald-900 dark:text-emerald-100';
-              } else if (isChosenWrong) {
-                buttonStyle =
-                  'border-rose-500 bg-rose-500/15 text-rose-900 dark:text-rose-100';
-              } else if (feedback) {
-                buttonStyle =
-                  'border-[var(--border-subtle)] bg-[var(--surface-canvas)] opacity-60';
-              }
-
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  disabled={Boolean(feedback)}
-                  onClick={() => void handleSelectOption(option.id)}
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3.5 text-left transition ${buttonStyle}`}
-                >
-                  <div className="min-w-0 pr-2">
-                    <p className="text-[0.9375rem] font-semibold">
-                      {option.label}
-                    </p>
-                    <p className="truncate text-[0.75rem] text-[var(--text-secondary)]">
-                      {option.sublabel}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {isExpected && (
-                      <span
-                        aria-hidden="true"
-                        className="text-emerald-600 dark:text-emerald-400 font-bold"
-                      >
-                        ✓
-                      </span>
-                    )}
-                    {isChosenWrong && (
-                      <span
-                        aria-hidden="true"
-                        className="text-rose-600 dark:text-rose-400 font-bold"
-                      >
-                        ✗
-                      </span>
-                    )}
-                    <kbd className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2 py-0.5 font-mono text-[0.75rem] font-semibold">
-                      {option.shortcutKey}
-                    </kbd>
-                  </div>
-                </button>
-              );
-            })}
+            {activeTrial.options.map((option) => (
+              <AnswerTile
+                key={option.id}
+                label={option.label}
+                sublabel={option.sublabel}
+                shortcutKey={option.shortcutKey}
+                disabled={Boolean(feedback)}
+                state={getAnswerTileState(
+                  option.id,
+                  feedback ? { correctId: feedback.skillId, chosenId: feedback.chosenOptionId } : null
+                )}
+                onClick={() => void handleSelectOption(option.id)}
+              />
+            ))}
           </div>
         )}
       </div>
 
-      {/* Immediate (<100ms) Task-Focused Feedback Panel */}
+      {/* Explanation after answering */}
       {feedback && (
-        <section
-          aria-label="Trial feedback"
-          aria-live="polite"
-          className="apple-card p-6 sm:p-8 space-y-5"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
-            <div className="flex items-center gap-3">
-              <span
-                className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-[1.125rem] font-bold ${
-                  feedback.correct
-                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
-                }`}
-                aria-hidden="true"
-              >
-                {feedback.correct ? '✓' : '✗'}
+        <details className="card group p-5 sm:p-6" open={!feedback.correct}>
+          <summary className="cursor-pointer list-none text-[1rem] font-extrabold [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-2">
+              <Lightbulb aria-hidden="true" className="h-5 w-5 text-[var(--warn)]" />
+              Why is it {feedback.languageName}?
+              <span className="text-[0.8125rem] font-semibold text-[var(--text-secondary)] group-open:hidden">
+                (tap to see)
               </span>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-[1.125rem] font-bold">
-                    {feedback.mapEvaluation
-                      ? feedback.correct
-                        ? `All Candidate Countries Correct — ${feedback.languageName} (${feedback.nativeName})`
-                        : `Map Selection Incomplete — ${feedback.languageName} (${feedback.nativeName})`
-                      : `${
-                          feedback.correct ? 'Correct — ' : 'Incorrect — Answer is '
-                        }${feedback.languageName} (${feedback.nativeName})`}
-                  </h2>
-                  {feedback.assisted && (
-                    <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-amber-800 dark:text-amber-200">
-                      Assisted · Follow-up Queued
-                    </span>
-                  )}
-                  {feedback.triggeredContrastQueued && (
-                    <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-indigo-700 dark:text-indigo-300">
-                      Stage 2 Contrast Card Queued Next
-                    </span>
-                  )}
-                  {feedback.bridgeQueued && (
-                    <span className="rounded-full bg-sky-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-sky-700 dark:text-sky-300">
-                      Stage 3 Country Bridge Queued Next
-                    </span>
-                  )}
-                </div>
-                <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                  Response time: {(feedback.responseTimeMs / 1000).toFixed(2)}s{' '}
-                  {feedback.assisted
-                    ? '· Recorded as assisted exposure (honest Mastery State)'
-                    : feedback.isFluentSpeed
-                      ? `· Fluent (<${feedback.fluencyTargetMs / 1000}s automatic recognition)`
-                      : `· Above ${feedback.fluencyTargetMs / 1000}s fluency threshold (scheduled sooner via ARTS)`}
-                </p>
-              </div>
-            </div>
+            </span>
+          </summary>
 
-            <button
-              type="button"
-              onClick={handleNextTrial}
-              className="rounded-xl bg-[var(--brand-accent)] px-5 py-2.5 text-[0.875rem] font-semibold text-white hover:opacity-95"
-            >
-              Next Trial (Enter) →
-            </button>
-          </div>
-
-          {/* Stage 3 Map Selection Evaluation Breakdown (Emerald / Amber / Rose + Uncovered Footnotes) */}
-          {feedback.mapEvaluation && (
-            <div
-              className="space-y-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4"
-              data-testid="map-evaluation-breakdown"
-            >
-              <h3 className="text-[0.875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                Stage 3 Map Selection Breakdown
-              </h3>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                {/* Correct Selections (Emerald) */}
-                <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3.5">
-                  <p className="text-[0.8125rem] font-bold text-emerald-800 dark:text-emerald-200">
-                    ✓ Correct Selections ({feedback.mapEvaluation.correctCountries.length})
-                  </p>
-                  {feedback.mapEvaluation.correctCountries.length === 0 ? (
-                    <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">
-                      None selected
-                    </p>
-                  ) : (
-                    <ul className="mt-2 space-y-1 text-[0.8125rem]">
-                      {feedback.mapEvaluation.correctCountries.map((country) => (
-                        <li
-                          key={`eval-correct-${country.id}`}
-                          className="flex items-center justify-between gap-2 font-medium text-emerald-900 dark:text-emerald-100"
-                        >
-                          <span>✓ {country.name}</span>
-                          <span className="text-[0.6875rem] uppercase opacity-80">
-                            {country.coverageTier}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+          <div className="mt-4 space-y-5">
+            {feedback.mapEvaluation && (
+              <div className="space-y-3" data-testid="map-evaluation-breakdown">
+                <h3 className="text-[0.875rem] font-extrabold">Your map answer</h3>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <EvaluationColumn
+                    tone="good"
+                    title={`✓ Correct Selections (${feedback.mapEvaluation.correctCountries.length})`}
+                    empty="None selected"
+                    items={feedback.mapEvaluation.correctCountries.map((c) => ({ id: c.id, name: c.name, note: c.coverageTier }))}
+                  />
+                  <EvaluationColumn
+                    tone="warn"
+                    title={`! Missed Candidate Countries (${feedback.mapEvaluation.missedCountries.length})`}
+                    empty="None missed!"
+                    items={feedback.mapEvaluation.missedCountries.map((c) => ({ id: c.id, name: c.name, note: c.coverageTier }))}
+                  />
+                  <EvaluationColumn
+                    tone="bad"
+                    title={`✗ Incorrect Clicks (${feedback.mapEvaluation.incorrectCountries.length})`}
+                    empty="No wrong taps"
+                    items={feedback.mapEvaluation.incorrectCountries.map((c) => ({
+                      id: c.id,
+                      name: c.name,
+                      note:
+                        c.coverageTier === 'none'
+                          ? 'Uncovered in Street View'
+                          : `Not a Candidate Country for ${feedback.languageName}`,
+                    }))}
+                  />
                 </div>
 
-                {/* Missed Candidate Countries (Amber) */}
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5">
-                  <p className="text-[0.8125rem] font-bold text-amber-800 dark:text-amber-200">
-                    ! Missed Candidate Countries ({feedback.mapEvaluation.missedCountries.length})
-                  </p>
-                  {feedback.mapEvaluation.missedCountries.length === 0 ? (
-                    <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">
-                      None missed!
-                    </p>
-                  ) : (
-                    <ul className="mt-2 space-y-1 text-[0.8125rem]">
-                      {feedback.mapEvaluation.missedCountries.map((country) => (
-                        <li
-                          key={`eval-missed-${country.id}`}
-                          className="flex items-center justify-between gap-2 font-medium text-amber-900 dark:text-amber-100"
-                        >
-                          <span>! {country.name}</span>
-                          <span className="text-[0.6875rem] uppercase opacity-80">
-                            {country.coverageTier}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                {/* Incorrect Clicks Including Uncovered Countries (Rose) */}
-                <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5">
-                  <p className="text-[0.8125rem] font-bold text-rose-800 dark:text-rose-200">
-                    ✗ Incorrect Clicks ({feedback.mapEvaluation.incorrectCountries.length})
-                  </p>
-                  {feedback.mapEvaluation.incorrectCountries.length === 0 ? (
-                    <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">
-                      No false clicks
-                    </p>
-                  ) : (
-                    <ul className="mt-2 space-y-1 text-[0.8125rem]">
-                      {feedback.mapEvaluation.incorrectCountries.map((country) => (
-                        <li
-                          key={`eval-incorrect-${country.id}`}
-                          className="flex flex-col text-rose-900 dark:text-rose-100"
-                        >
-                          <span className="font-medium">✗ {country.name}</span>
-                          <span className="text-[0.6875rem] opacity-85">
-                            {country.coverageTier === 'none'
-                              ? 'Uncovered in Street View (coverageTier: none)'
-                              : `Not a Candidate Country for ${feedback.languageName}`}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-
-              {feedback.uncoveredCountryNotes.length > 0 && (
-                <div
-                  className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-3 text-[0.8125rem]"
-                  data-testid="uncovered-country-footnotes"
-                >
-                  <p className="font-semibold text-amber-900 dark:text-amber-200">
-                    Informational Footnote — Notable Non-Covered Countries:
-                  </p>
-                  <p className="mt-0.5 text-[var(--text-secondary)]">
-                    {feedback.uncoveredCountryNotes.join(' ')}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Highlighted Sample + English Translation */}
-          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4">
-            <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-              Sample with Highlighted Tells & Translation
-            </p>
-            <p
-              lang={feedback.languageId}
-              className="mt-1.5 text-[1.125rem] font-medium leading-relaxed"
-            >
-              <HighlightedSampleText
-                sample={feedback.sample}
-                matches={feedback.matchedTells}
-              />
-            </p>
-            <p className="mt-1.5 text-[0.875rem] text-[var(--text-secondary)] italic">
-              “{feedback.translation}”
-            </p>
-          </div>
-
-          {/* Matched Tells & Structural/Gestalt Clues */}
-          <div className="space-y-3">
-            <h3 className="text-[0.875rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-              What to Look For (Tells & Pattern Clues)
-            </h3>
-
-            {feedback.matchedTells.length > 0 ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {feedback.matchedTells.map((match) => (
-                  <div
-                    key={match.tellId}
-                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3.5"
+                {feedback.uncoveredCountryNotes.length > 0 && (
+                  <p
+                    className="rounded-xl bg-[var(--warn-soft)] p-3 text-[0.8125rem]"
+                    data-testid="uncovered-country-footnotes"
                   >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`rounded-md border px-2 py-0.5 font-mono text-[0.75rem] font-semibold ${
-                          TELL_BADGE_CLASSES[
-                            match.colorIndex % TELL_BADGE_CLASSES.length
-                          ]
-                        }`}
-                      >
-                        {match.spans.map((s) => s.text).join(', ')}
-                      </span>
-                      <span className="text-[0.875rem] font-semibold">
-                        {match.label}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-[0.8125rem] text-[var(--text-secondary)]">
-                      {match.explanation}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4 text-[0.875rem]">
-                <p className="font-semibold">
-                  No single-character Tell in this Sample — use Gestalt /
-                  Structural Clue:
-                </p>
-                {feedback.structuralClue && (
-                  <p className="mt-1 text-[var(--text-secondary)]">
-                    {feedback.structuralClue}
+                    <strong>Good to know:</strong> {feedback.uncoveredCountryNotes.join(' ')}
                   </p>
                 )}
+              </div>
+            )}
+
+            <div className="rounded-2xl bg-[var(--surface-elevated)] p-4">
+              <p lang={feedback.languageId} className="text-[1.25rem] font-bold leading-relaxed">
+                <HighlightedSampleText sample={feedback.sample} matches={feedback.matchedTells} />
+              </p>
+              <p className="mt-1.5 text-[0.875rem] italic text-[var(--text-secondary)]">
+                “{feedback.translation}”
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-[0.875rem] font-extrabold">What to look for</h3>
+              {feedback.matchedTells.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {feedback.matchedTells.map((match) => (
+                    <div key={match.tellId} className="rounded-xl border-2 border-[var(--border-subtle)] p-3.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-md border px-2 py-0.5 font-mono text-[0.75rem] font-semibold ${
+                            TELL_BADGE_CLASSES[match.colorIndex % TELL_BADGE_CLASSES.length]
+                          }`}
+                        >
+                          {match.spans.map((s) => s.text).join(', ')}
+                        </span>
+                        <span className="text-[0.875rem] font-bold">{match.label}</span>
+                      </div>
+                      <p className="mt-1.5 text-[0.8125rem] text-[var(--text-secondary)]">{match.explanation}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border-2 border-[var(--border-subtle)] p-4 text-[0.875rem]">
+                  <p className="font-bold">No single-letter Tell here — use the overall pattern:</p>
+                  {feedback.structuralClue && (
+                    <p className="mt-1 text-[var(--text-secondary)]">{feedback.structuralClue}</p>
+                  )}
+                  <p className="mt-1 text-[var(--text-secondary)]">{feedback.gestaltNote}</p>
+                </div>
+              )}
+
+              {feedback.structuralClue && feedback.matchedTells.length > 0 && (
+                <p className="text-[0.8125rem] text-[var(--text-secondary)]">
+                  <strong>Also:</strong> {feedback.structuralClue}
+                </p>
+              )}
+
+              <p className="text-[0.8125rem] text-[var(--text-secondary)]">
+                <strong>Rule of thumb:</strong> {feedback.contrastNote}
+              </p>
+            </div>
+
+            {feedback.chosenLanguageContrast && (
+              <div className="rounded-xl bg-[var(--bad-soft)] p-4 text-[0.8125rem]">
+                <p className="font-extrabold">Why not {feedback.chosenLanguageContrast.languageName}?</p>
                 <p className="mt-1 text-[var(--text-secondary)]">
-                  {feedback.gestaltNote}
+                  {feedback.chosenLanguageContrast.contrastNote} Key{' '}
+                  {feedback.chosenLanguageContrast.languageName} tells:{' '}
+                  {feedback.chosenLanguageContrast.keyTells
+                    .map((t) => `${t.pattern} (${t.label})`)
+                    .join(' · ')}
                 </p>
               </div>
             )}
 
-            {feedback.structuralClue && feedback.matchedTells.length > 0 && (
-              <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                <strong>Structural note:</strong> {feedback.structuralClue}
-              </p>
-            )}
-
-            <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-              <strong>Group contrast:</strong> {feedback.contrastNote}
-            </p>
-          </div>
-
-          {/* Chosen Wrong Language Contrast */}
-          {feedback.chosenLanguageContrast && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-[0.8125rem]">
-              <p className="font-semibold text-amber-800 dark:text-amber-200">
-                Why not {feedback.chosenLanguageContrast.languageName}?
-              </p>
-              <p className="mt-1 text-[var(--text-secondary)]">
-                {feedback.chosenLanguageContrast.contrastNote} Key{' '}
-                {feedback.chosenLanguageContrast.languageName} tells:{' '}
-                {feedback.chosenLanguageContrast.keyTells
-                  .map((t) => `${t.pattern} (${t.label})`)
-                  .join(' · ')}
-              </p>
-            </div>
-          )}
-
-          {/* Covered Candidate Countries */}
-          <div className="border-t border-[var(--border-subtle)] pt-4">
-            <h3 className="text-[0.875rem] font-semibold">
-              Playable Street View Candidate Countries (
-              {feedback.candidateCountries.length})
-            </h3>
-            <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3">
-              {feedback.candidateCountries.map((country) => (
-                <div
-                  key={country.id}
-                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3 text-[0.8125rem]"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">{country.name}</span>
+            <div className="border-t border-[var(--border-subtle)] pt-4">
+              <h3 className="text-[0.875rem] font-extrabold">
+                Where you&apos;ll see it ({feedback.candidateCountries.length} Candidate Countries)
+              </h3>
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {feedback.candidateCountries.map((country) => (
+                  <span
+                    key={country.id}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.8125rem] font-bold"
+                    title={`Drives ${country.drivingSide} · ${country.tld} · ${country.currencies.map((c) => c.symbol).join('/')}`}
+                  >
+                    {country.name}
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[0.6875rem] font-semibold capitalize ${
-                        country.coverageTier === 'official'
-                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                          : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                      }`}
+                      className="text-[0.6875rem] font-extrabold capitalize"
+                      style={{ color: country.coverageTier === 'official' ? 'var(--good)' : 'var(--warn)' }}
                     >
                       {country.coverageTier}
                     </span>
-                  </div>
-                  <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
-                    Drives <strong>{country.drivingSide}</strong> ·{' '}
-                    <code>{country.tld}</code> ·{' '}
-                    {country.currencies.map((c) => c.symbol).join('/')}
-                  </p>
-                </div>
-              ))}
+                  </span>
+                ))}
+              </div>
             </div>
-            {feedback.uncoveredCountryNotes.length > 0 && (
-              <p className="mt-2.5 text-[0.75rem] text-[var(--text-secondary)]">
-                <strong>Uncovered footnote:</strong>{' '}
-                {feedback.uncoveredCountryNotes.join(' ')}
-              </p>
-            )}
           </div>
-        </section>
+        </details>
+      )}
+
+      {feedback && (
+        <FeedbackBanner
+          correct={feedback.correct}
+          seed={activeTrial.trialNumber}
+          answer={
+            feedback.mapEvaluation
+              ? feedback.correct
+                ? `All countries found for ${feedback.languageName}`
+                : `Some countries missed for ${feedback.languageName}`
+              : `It's ${feedback.languageName} (${feedback.nativeName})`
+          }
+          detail={formatSpeed(feedback.responseTimeMs, feedback.fluencyTargetMs, feedback.assisted, feedback.correct)}
+          badges={
+            <>
+              {feedback.triggeredContrastQueued && (
+                <span className="chip">Mix-up check coming up</span>
+              )}
+              {feedback.bridgeQueued && <span className="chip">Map question coming up</span>}
+            </>
+          }
+          continueLabel={round.isComplete ? 'See results' : 'Continue'}
+          onContinue={handleContinue}
+        />
+      )}
+    </div>
+  );
+}
+
+function EvaluationColumn({
+  tone,
+  title,
+  empty,
+  items,
+}: {
+  tone: 'good' | 'warn' | 'bad';
+  title: string;
+  empty: string;
+  items: Array<{ id: string; name: string; note: string }>;
+}) {
+  const color = tone === 'good' ? 'var(--good)' : tone === 'warn' ? 'var(--warn)' : 'var(--bad)';
+  return (
+    <div
+      className="rounded-xl border-2 p-3.5"
+      style={{ borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }}
+    >
+      <p className="text-[0.8125rem] font-extrabold">{title}</p>
+      {items.length === 0 ? (
+        <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">{empty}</p>
+      ) : (
+        <ul className="mt-2 space-y-1 text-[0.8125rem]">
+          {items.map((item) => (
+            <li key={item.id} className="flex flex-col">
+              <span className="font-bold">{item.name}</span>
+              <span className="text-[0.6875rem] capitalize text-[var(--text-secondary)]">{item.note}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

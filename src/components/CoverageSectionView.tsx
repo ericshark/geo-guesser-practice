@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
+import { Lightbulb, Map as MapIcon, Play, TriangleAlert } from 'lucide-react';
 import {
   COVERAGE_FOCUS_MAP,
   COVERAGE_FOCUS_OPTIONS,
@@ -16,7 +17,14 @@ import type {
   PracticeTrial,
 } from '../engine/practiceEngine.ts';
 import type { MasteryState, ProgressData } from '../storage/index.ts';
-import { MasteryBadge } from './MasteryBadge.tsx';
+import { AnswerTile, type AnswerTileState } from './game/AnswerTile.tsx';
+import { FeedbackBanner, formatSpeed } from './game/FeedbackBanner.tsx';
+import { RoundHeader } from './game/RoundHeader.tsx';
+import { RoundResults } from './game/RoundResults.tsx';
+import { SectionPickerHeader } from './game/SectionPickerHeader.tsx';
+import { useRound } from './game/useRound.ts';
+import { MasteryBadge, MasteryBar } from './MasteryBadge.tsx';
+import { SECTION_META } from './sectionMeta.ts';
 import { WorldMapView } from './WorldMapView.tsx';
 
 interface CoverageSectionViewProps {
@@ -26,29 +34,33 @@ interface CoverageSectionViewProps {
   onBackToDashboard: () => void;
 }
 
-const COVERAGE_TIER_BADGE_STYLES: Record<
-  CoverageTier,
-  { label: string; badgeClass: string; dotClass: string }
-> = {
-  official: {
-    label: 'Official Coverage',
-    badgeClass:
-      'border-emerald-500/40 bg-emerald-500/12 text-emerald-800 dark:text-emerald-200',
-    dotClass: 'bg-emerald-500',
-  },
-  limited: {
-    label: 'Limited Coverage',
-    badgeClass:
-      'border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-200',
-    dotClass: 'bg-amber-500',
-  },
-  none: {
-    label: 'None (No Coverage)',
-    badgeClass:
-      'border-rose-500/40 bg-rose-500/12 text-rose-800 dark:text-rose-200',
-    dotClass: 'bg-rose-500',
-  },
+const META = SECTION_META.coverage;
+
+const TIER_STYLE: Record<CoverageTier, { label: string; color: string }> = {
+  official: { label: 'Official coverage', color: 'var(--good)' },
+  limited: { label: 'Limited coverage', color: 'var(--warn)' },
+  none: { label: 'No coverage', color: 'var(--bad)' },
 };
+
+const DRILL_MODES: Array<{ id: CoverageDrillMode; label: string; hint: string }> = [
+  { id: 'mixed', label: 'Mixed', hint: 'A bit of everything' },
+  { id: 'tier-speed', label: 'Official, limited, or none?', hint: 'Fast three-way calls' },
+  { id: 'regional-map', label: 'Map it', hint: 'Tap countries on the map' },
+  { id: 'neighbor-cluster', label: 'Odd one out', hint: 'Spot the uncovered neighbor' },
+];
+
+function TierChip({ tier, children }: { tier: CoverageTier; children?: ReactNode }) {
+  const style = TIER_STYLE[tier];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[0.75rem] font-extrabold"
+      style={{ color: `color-mix(in srgb, ${style.color} 70%, var(--text-primary))`, backgroundColor: `color-mix(in srgb, ${style.color} 15%, transparent)` }}
+    >
+      <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: style.color }} />
+      {children ?? style.label}
+    </span>
+  );
+}
 
 export function CoverageSectionView({
   engine,
@@ -56,8 +68,9 @@ export function CoverageSectionView({
   initialFocus,
   onBackToDashboard,
 }: CoverageSectionViewProps) {
-  const drillModeSelectId = useId();
+  const drillModeLabelId = useId();
   const breakdownHeadingId = useId();
+  const round = useRound();
 
   const [selectedFocus, setSelectedFocus] = useState<CoverageFocusId | null>(
     initialFocus ?? null
@@ -99,6 +112,7 @@ export function CoverageSectionView({
 
   const launchCoverageSession = useCallback(
     (focusId: CoverageFocusId, mode: CoverageDrillMode) => {
+      round.reset();
       setSelectedFocus(focusId);
       const trial = engine.startCoverageSession({
         focusId,
@@ -110,7 +124,7 @@ export function CoverageSectionView({
       setElapsedMs(0);
       setSelectedMapCountryIds([]);
     },
-    [engine]
+    [engine, round.reset]
   );
 
   useEffect(() => {
@@ -119,9 +133,9 @@ export function CoverageSectionView({
     }
   }, [initialFocus]); // Run when initialFocus prop changes
 
-  // Unobtrusive fluency response-time bar timer during active unanswered trial
+  // Response-time timer during an active unanswered trial
   useEffect(() => {
-    if (!activeTrial || feedback) {
+    if (!activeTrial || feedback || round.showResults) {
       return;
     }
     const start = performance.now();
@@ -129,7 +143,7 @@ export function CoverageSectionView({
       setElapsedMs(Math.round(performance.now() - start));
     }, 50);
     return () => window.clearInterval(interval);
-  }, [activeTrial, feedback]);
+  }, [activeTrial, feedback, round.showResults]);
 
   const handleRequestGuidedBreakdown = useCallback(() => {
     if (!activeTrial || feedback) return;
@@ -142,6 +156,19 @@ export function CoverageSectionView({
     setActiveBreakdown(null);
   }, [engine]);
 
+  const recordFeedback = useCallback(
+    (result: CoverageTrialFeedback) => {
+      round.record({
+        correct: result.correct,
+        fluent: result.correct && result.isFluentSpeed && !result.assisted,
+        responseTimeMs: result.responseTimeMs,
+        label: result.countryName,
+        sublabel: result.coverageTier,
+      });
+    },
+    [round.record]
+  );
+
   const handleSelectOption = useCallback(
     async (optionId: string) => {
       if (!activeTrial || feedback) return;
@@ -151,8 +178,9 @@ export function CoverageSectionView({
       );
       const result = await engine.submitCoverageAnswer(optionId, rt);
       setFeedback(result);
+      recordFeedback(result);
     },
-    [activeTrial, elapsedMs, engine, feedback]
+    [activeTrial, elapsedMs, engine, feedback, recordFeedback]
   );
 
   const handleToggleMapCountry = useCallback(
@@ -182,8 +210,9 @@ export function CoverageSectionView({
       );
       const result = await engine.submitCoverageMapAnswer(idsToSubmit, rt);
       setFeedback(result);
+      recordFeedback(result);
     },
-    [activeTrial, elapsedMs, engine, feedback, selectedMapCountryIds]
+    [activeTrial, elapsedMs, engine, feedback, recordFeedback, selectedMapCountryIds]
   );
 
   const handleNextTrial = useCallback(() => {
@@ -195,13 +224,27 @@ export function CoverageSectionView({
     setSelectedMapCountryIds([]);
   }, [engine]);
 
+  const handleContinue = useCallback(() => {
+    if (round.isComplete) {
+      round.finish();
+      return;
+    }
+    handleNextTrial();
+  }, [handleNextTrial, round.finish, round.isComplete]);
+
+  const handlePlayAgain = useCallback(() => {
+    round.reset();
+    handleNextTrial();
+  }, [handleNextTrial, round.reset]);
+
   const handleExitToFocusPicker = useCallback(() => {
+    round.reset();
     setSelectedFocus(null);
     setActiveTrial(null);
     setActiveBreakdown(null);
     setFeedback(null);
     setSelectedMapCountryIds([]);
-  }, []);
+  }, [round.reset]);
 
   // Full keyboard navigation: 1..6 for choices, Space or ? for Guided Breakdown, Enter to submit/advance, Escape to close overlay or exit
   useEffect(() => {
@@ -212,7 +255,8 @@ export function CoverageSectionView({
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT' ||
-          target.closest('dialog'))
+          target.closest('dialog') ||
+          target.closest('details'))
       ) {
         return;
       }
@@ -289,9 +333,10 @@ export function CoverageSectionView({
         return;
       }
 
-      if (feedback && e.key === 'Enter') {
+      // A focused Continue button already handles Enter via click.
+      if (feedback && e.key === 'Enter' && target?.tagName !== 'BUTTON') {
         e.preventDefault();
-        handleNextTrial();
+        handleContinue();
       }
     };
 
@@ -301,9 +346,9 @@ export function CoverageSectionView({
     activeBreakdown,
     activeTrial,
     feedback,
+    handleContinue,
     handleDismissGuidedBreakdown,
     handleExitToFocusPicker,
-    handleNextTrial,
     handleRequestGuidedBreakdown,
     handleSelectOption,
     handleSubmitCoverageMap,
@@ -312,7 +357,7 @@ export function CoverageSectionView({
   ]);
 
   // ---------------------------------------------------------------------------
-  // Render Focus Picker when no focus session is active
+  // Focus Picker when no focus session is active
   // ---------------------------------------------------------------------------
   if (!selectedFocus || !activeTrial || !activeTrial.coveragePrompt) {
     const inspectedCountry = explorerInspectedCountryId
@@ -321,125 +366,74 @@ export function CoverageSectionView({
 
     return (
       <div className="space-y-8">
-        <section
-          aria-labelledby="coverage-section-heading"
-          className="apple-card p-6 sm:p-8"
-        >
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-            <div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={onBackToDashboard}
-                  className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[0.75rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                >
-                  ← Dashboard
-                </button>
-                <span className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--brand-accent)]">
-                  Section 3 · Street View Coverage Tiers
-                </span>
-              </div>
-              <h1
-                id="coverage-section-heading"
-                tabIndex={-1}
-                className="mt-2 text-[1.75rem] font-bold tracking-tight"
+        <SectionPickerHeader
+          sectionId="coverage"
+          title="Coverage"
+          description="Learn which countries have Street View — so you never guess one you can't actually land in."
+          onBack={onBackToDashboard}
+        />
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => launchCoverageSession('world', drillMode)}
+            className="card flex items-center gap-4 p-5 text-left transition hover:-translate-y-0.5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: META.color }}>
+              <Play aria-hidden="true" className="h-6 w-6" fill="currentColor" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[1.125rem] font-black">Quick play: whole world</span>
+              <span className="block text-[0.875rem] text-[var(--text-secondary)]">Every Playable Country, mixed.</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => launchCoverageSession('trap-countries', drillMode)}
+            className="card flex items-center gap-4 p-5 text-left transition hover:-translate-y-0.5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--bad)] text-white">
+              <TriangleAlert aria-hidden="true" className="h-6 w-6" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[1.125rem] font-black">Trap countries</span>
+              <span className="block text-[0.875rem] text-[var(--text-secondary)]">China, Egypt, Belarus, Bolivia…</span>
+            </span>
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <p id={drillModeLabelId} className="text-[0.875rem] font-extrabold text-[var(--text-secondary)]">
+            Question style
+          </p>
+          <div role="radiogroup" aria-labelledby={drillModeLabelId} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {DRILL_MODES.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                role="radio"
+                aria-checked={drillMode === mode.id}
+                onClick={() => setDrillMode(mode.id)}
+                data-state={drillMode === mode.id ? 'selected' : 'idle'}
+                className="answer-tile !min-h-0 !flex-col !items-start !gap-0 !py-2.5"
               >
-                Coverage Practice
-              </h1>
-              <p className="mt-1 max-w-2xl text-[0.9375rem] text-[var(--text-secondary)]">
-                Internalize which <strong>Playable Countries</strong> have{' '}
-                <strong>Official</strong>, <strong>Limited</strong>, or{' '}
-                <strong>None</strong> Google Street View coverage so you never
-                guess an uncovered trap country or miss a regional corridor.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <label
-                  htmlFor={drillModeSelectId}
-                  className="text-[0.8125rem] font-medium text-[var(--text-secondary)]"
-                >
-                  Drill Mode:
-                </label>
-                <select
-                  id={drillModeSelectId}
-                  value={drillMode}
-                  onChange={(e) =>
-                    setDrillMode(e.target.value as CoverageDrillMode)
-                  }
-                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-2 text-[0.8125rem] font-medium"
-                >
-                  <option value="mixed">
-                    Mixed (Speed Tier + Regional Map + Neighbor Clusters)
-                  </option>
-                  <option value="tier-speed">
-                    Speed Classification (Official vs Limited vs None)
-                  </option>
-                  <option value="regional-map">
-                    Regional Map Quiz (Click Covered / Uncovered Countries)
-                  </option>
-                  <option value="neighbor-cluster">
-                    Neighboring Cluster Traps (Spot the Uncovered Neighbor)
-                  </option>
-                </select>
-              </div>
-            </div>
+                <span className="text-[0.9375rem] font-extrabold">{mode.label}</span>
+                <span className="text-[0.75rem] font-semibold text-[var(--text-secondary)]">{mode.hint}</span>
+              </button>
+            ))}
           </div>
-
-          {/* Quick-launch buttons */}
-          <div className="mt-6 flex flex-wrap gap-3 border-t border-[var(--border-subtle)] pt-5">
-            <button
-              type="button"
-              onClick={() => launchCoverageSession('trap-countries', drillMode)}
-              className="rounded-xl bg-[var(--brand-accent)] px-4 py-2.5 text-[0.875rem] font-semibold text-white shadow-xs hover:opacity-95"
-            >
-              Drill Common Trap Countries (China, Egypt, Belarus, Bolivia…)
-            </button>
-            <button
-              type="button"
-              onClick={() => launchCoverageSession('world', drillMode)}
-              className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2.5 text-[0.875rem] font-semibold hover:opacity-90"
-            >
-              World Coverage Mixed Drill
-            </button>
-            <button
-              type="button"
-              onClick={() => launchCoverageSession('world', 'regional-map')}
-              className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2.5 text-[0.875rem] font-medium hover:opacity-90"
-            >
-              Interactive Regional Map Quizzes
-            </button>
-          </div>
-        </section>
+        </div>
 
         {/* Regional Focus Cards */}
         <section aria-labelledby="coverage-focus-heading" className="space-y-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2
-              id="coverage-focus-heading"
-              className="text-[1.25rem] font-semibold"
-            >
-              Choose a Regional Focus
-            </h2>
-            <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-              7 regional & trap focuses · 145 Playable Countries tracked by ARTS
-            </p>
-          </div>
+          <h2 id="coverage-focus-heading" className="text-[1.375rem] font-black">
+            Pick a region
+          </h2>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {COVERAGE_FOCUS_OPTIONS.map((focus) => {
               const focusCountries = getCountriesForCoverageFocus(focus.id);
-              const officialCount = focusCountries.filter(
-                (c) => c.coverageTier === 'official'
-              ).length;
-              const limitedCount = focusCountries.filter(
-                (c) => c.coverageTier === 'limited'
-              ).length;
-              const noneCount = focusCountries.filter(
-                (c) => c.coverageTier === 'none'
-              ).length;
-
+              const tierCounts: Record<CoverageTier, number> = { official: 0, limited: 0, none: 0 };
               const counts: Record<MasteryState, number> = {
                 unseen: 0,
                 learning: 0,
@@ -447,111 +441,55 @@ export function CoverageSectionView({
                 mastered: 0,
               };
               for (const c of focusCountries) {
-                const state =
-                  progress.skills[`cov:${c.id}`]?.mastery ?? 'unseen';
+                tierCounts[c.coverageTier] += 1;
+                const state = progress.skills[`cov:${c.id}`]?.mastery ?? 'unseen';
                 counts[state] += 1;
               }
 
               const trapExamples = focusCountries
-                .filter(
-                  (c) => c.isTrapCountry || c.coverageTier !== 'official'
-                )
-                .slice(0, 6);
+                .filter((c) => c.isTrapCountry || c.coverageTier !== 'official')
+                .slice(0, 5);
 
               return (
-                <article
-                  key={focus.id}
-                  className="apple-card flex flex-col justify-between p-6"
-                >
+                <article key={focus.id} className="card flex flex-col gap-3 p-5">
                   <div>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <span className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--brand-accent)]">
-                          {focus.id === 'trap-countries'
-                            ? 'High-Yield Trap Set'
-                            : `${focusCountries.length} Playable Countries`}
-                        </span>
-                        <h3 className="mt-0.5 text-[1.125rem] font-semibold">
-                          {focus.name}
-                        </h3>
-                      </div>
-                      <span className="rounded-full bg-zinc-500/10 px-2.5 py-0.5 text-[0.75rem] font-medium text-[var(--text-secondary)]">
-                        {counts.mastered}/{focusCountries.length} Mastered
-                      </span>
-                    </div>
+                    <h3 className="text-[1.125rem] font-black">{focus.name}</h3>
+                    <p className="mt-0.5 text-[0.875rem] text-[var(--text-secondary)]">{focus.description}</p>
+                  </div>
 
-                    <p className="mt-2 text-[0.8125rem] text-[var(--text-secondary)]">
-                      {focus.description}
-                    </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['official', 'limited', 'none'] as const).map((tier) => (
+                      <TierChip key={tier} tier={tier}>
+                        {tierCounts[tier]} {tier}
+                      </TierChip>
+                    ))}
+                  </div>
 
-                    {/* Coverage Tier distribution strip */}
-                    <div className="mt-3.5 flex flex-wrap items-center gap-2 text-[0.75rem]">
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-800 dark:text-emerald-200">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                        {officialCount} Official
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/35 bg-amber-500/12 px-2.5 py-1 font-medium text-amber-800 dark:text-amber-200">
-                        <span className="h-2 w-2 rounded-full bg-amber-500" />
-                        {limitedCount} Limited
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/35 bg-rose-500/10 px-2.5 py-1 font-medium text-rose-800 dark:text-rose-200">
-                        <span className="h-2 w-2 rounded-full bg-rose-500" />
-                        {noneCount} None
-                      </span>
-                    </div>
-
-                    {/* Key trap / limited examples */}
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {trapExamples.map((country) => (
+                  <div className="flex flex-wrap gap-1.5">
+                    {trapExamples.map((country) => (
+                      <span key={country.id} className="chip">
+                        {country.name}
                         <span
-                          key={country.id}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1 text-[0.75rem]"
-                        >
-                          <span className="font-medium">{country.name}</span>
-                          <span
-                            className={`rounded-sm px-1.5 py-0.2 text-[0.6875rem] font-semibold uppercase ${
-                              country.coverageTier === 'official'
-                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                : country.coverageTier === 'limited'
-                                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                                  : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                            }`}
-                          >
-                            {country.coverageTier}
-                          </span>
-                        </span>
-                      ))}
-                    </div>
+                          aria-hidden="true"
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: TIER_STYLE[country.coverageTier].color }}
+                        />
+                        <span className="visually-hidden">({country.coverageTier})</span>
+                      </span>
+                    ))}
                   </div>
 
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-4">
-                    <div className="flex items-center gap-2 text-[0.75rem] text-[var(--text-secondary)]">
-                      <span>○ {counts.unseen}</span>
-                      <span>◐ {counts.learning}</span>
-                      <span>◕ {counts.recognized}</span>
-                      <span>● {counts.mastered}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          launchCoverageSession(focus.id, 'regional-map')
-                        }
-                        className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
-                      >
-                        Map Quiz
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          launchCoverageSession(focus.id, drillMode)
-                        }
-                        className="rounded-lg bg-[var(--brand-accent)] px-3.5 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
-                      >
-                        Practice Focus →
-                      </button>
-                    </div>
-                  </div>
+                  <MasteryBar {...counts} total={focusCountries.length} />
+
+                  <button
+                    type="button"
+                    onClick={() => launchCoverageSession(focus.id, drillMode)}
+                    className="btn mt-auto w-full text-white"
+                    style={{ backgroundColor: META.color, borderColor: `color-mix(in srgb, ${META.color} 75%, black)` }}
+                  >
+                    <Play aria-hidden="true" className="h-4 w-4" fill="currentColor" />
+                    Play {focus.name}
+                  </button>
                 </article>
               );
             })}
@@ -559,95 +497,42 @@ export function CoverageSectionView({
         </section>
 
         {/* Interactive World Coverage Reference Map */}
-        <section
-          aria-labelledby="coverage-reference-map-heading"
-          className="apple-card space-y-4 p-6"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2
-                id="coverage-reference-map-heading"
-                className="text-[1.125rem] font-semibold"
-              >
-                Interactive Street View Coverage Tier Map
-              </h2>
-              <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                Click any <strong>Playable Country</strong> on the map to inspect
-                its exact <strong>Coverage Tier</strong> (
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                  Official
-                </span>
-                ,{' '}
-                <span className="font-semibold text-amber-600 dark:text-amber-400">
-                  Limited
-                </span>
-                , or{' '}
-                <span className="font-semibold text-rose-600 dark:text-rose-400">
-                  None
-                </span>
-                ) and regional Street View coverage note.
-              </p>
-            </div>
+        <section aria-labelledby="coverage-reference-map-heading" className="card space-y-4 p-5 sm:p-6">
+          <div>
+            <h2 id="coverage-reference-map-heading" className="flex items-center gap-2 text-[1.25rem] font-black">
+              <MapIcon aria-hidden="true" className="h-5 w-5" style={{ color: META.color }} />
+              Coverage world map
+            </h2>
+            <p className="mt-1 text-[0.875rem] text-[var(--text-secondary)]">
+              Tap any country to see its Coverage Tier:{' '}
+              <TierChip tier="official">Official</TierChip> <TierChip tier="limited">Limited</TierChip>{' '}
+              <TierChip tier="none">None</TierChip>
+            </p>
           </div>
 
           {inspectedCountry && (
-            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4">
+            <div className="rounded-2xl bg-[var(--surface-elevated)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <h3 className="text-[1rem] font-bold">
-                    {inspectedCountry.name}
-                  </h3>
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[0.75rem] font-semibold ${
-                      COVERAGE_TIER_BADGE_STYLES[inspectedCountry.coverageTier]
-                        .badgeClass
-                    }`}
-                  >
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        COVERAGE_TIER_BADGE_STYLES[
-                          inspectedCountry.coverageTier
-                        ].dotClass
-                      }`}
-                    />
-                    {
-                      COVERAGE_TIER_BADGE_STYLES[inspectedCountry.coverageTier]
-                        .label
-                    }
-                  </span>
-                  {inspectedCountry.isTrapCountry && (
-                    <span className="rounded-full bg-rose-500/12 px-2.5 py-0.5 text-[0.75rem] font-semibold text-rose-700 dark:text-rose-300">
-                      Common Trap Country
-                    </span>
-                  )}
-                  <span className="text-[0.75rem] text-[var(--text-secondary)]">
-                    {inspectedCountry.region} · Drives on the{' '}
-                    <strong className="capitalize">
-                      {inspectedCountry.drivingSide}
-                    </strong>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-[1.0625rem] font-black">{inspectedCountry.name}</h3>
+                  <TierChip tier={inspectedCountry.coverageTier} />
+                  {inspectedCountry.isTrapCountry && <span className="chip">Common trap</span>}
+                  <span className="text-[0.75rem] font-semibold text-[var(--text-secondary)]">
+                    {inspectedCountry.region} · drives {inspectedCountry.drivingSide}
                   </span>
                 </div>
                 <MasteryBadge
-                  state={
-                    progress.skills[`cov:${inspectedCountry.id}`]?.mastery ??
-                    'unseen'
-                  }
-                  size="sm"
+                  state={progress.skills[`cov:${inspectedCountry.id}`]?.mastery ?? 'unseen'}
+                  size="xs"
                 />
               </div>
-              <p className="mt-2 text-[0.875rem] text-[var(--text-primary)]">
-                {inspectedCountry.coverageNote}
-              </p>
+              <p className="mt-2 text-[0.875rem]">{inspectedCountry.coverageNote}</p>
             </div>
           )}
 
           <WorldMapView
-            selectedCountryIds={
-              explorerInspectedCountryId ? [explorerInspectedCountryId] : []
-            }
-            onToggleCountry={(countryId) =>
-              setExplorerInspectedCountryId(countryId)
-            }
+            selectedCountryIds={explorerInspectedCountryId ? [explorerInspectedCountryId] : []}
+            onToggleCountry={(countryId) => setExplorerInspectedCountryId(countryId)}
             activeRegionPreset={mapRegionPreset}
             onRegionPresetChange={setMapRegionPreset}
             showAllCoverageTiers={true}
@@ -657,279 +542,185 @@ export function CoverageSectionView({
     );
   }
 
+  const focusSpec = COVERAGE_FOCUS_MAP[selectedFocus];
+
+  if (round.showResults) {
+    return (
+      <RoundResults
+        sectionLabel={focusSpec?.name ?? 'Coverage'}
+        summary={round.summary}
+        onPlayAgain={handlePlayAgain}
+        onBack={handleExitToFocusPicker}
+        backLabel="All regions"
+      />
+    );
+  }
+
   // ---------------------------------------------------------------------------
-  // Active Coverage Drill View (Tier Speed, Neighbor Cluster, or Regional Map)
+  // Active Coverage round (Tier Speed, Neighbor Cluster, or Regional Map)
   // ---------------------------------------------------------------------------
   const prompt = activeTrial.coveragePrompt;
-  const focusSpec = COVERAGE_FOCUS_MAP[selectedFocus];
   const targetCountry = prompt.targetCountry;
   const expectedCountryIds = prompt.expectedCountryIds ?? [targetCountry.id];
   const currentSkillMastery =
     progress.skills[activeTrial.skillId]?.mastery ?? 'unseen';
+  const kindLabel =
+    activeTrial.kind === 'coverage-tier'
+      ? 'Official, limited, or none?'
+      : activeTrial.kind === 'coverage-cluster'
+        ? 'Neighboring Cluster Coverage Trap · odd one out'
+        : 'Map it';
+  const correctOptionId =
+    activeTrial.kind === 'coverage-tier'
+      ? `tier:${targetCountry.coverageTier}`
+      : `cov:${targetCountry.id}`;
 
-  // Fluency bar progress (target 3500ms)
-  const fluencyRatio = Math.min(100, Math.round((elapsedMs / 3500) * 100));
-  const isWithinFluencyThreshold = elapsedMs <= 3500;
+  const optionState = (optId: string, languageId?: string): AnswerTileState => {
+    if (!feedback) return 'idle';
+    const isExpected =
+      optId === correctOptionId ||
+      languageId === (activeTrial.kind === 'coverage-tier' ? targetCountry.coverageTier : targetCountry.id);
+    if (isExpected) return 'correct';
+    if (feedback.chosenOptionId === optId || feedback.chosenOptionId === languageId) return 'wrong';
+    return 'dim';
+  };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      {/* Top Drill Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleExitToFocusPicker}
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
-          >
-            ← Coverage Focuses
-          </button>
-          <div>
-            <h1 className="text-[1rem] font-semibold">
-              {focusSpec?.name ?? 'Coverage Drill'}
-            </h1>
-            <p className="text-[0.75rem] text-[var(--text-secondary)]">
-              Trial #{activeTrial.trialNumber} ·{' '}
-              {activeTrial.kind === 'coverage-tier'
-                ? 'Speed Coverage Tier Classification'
-                : activeTrial.kind === 'coverage-cluster'
-                  ? 'Neighboring Cluster Coverage Trap'
-                  : 'Interactive Regional Coverage Map Quiz'}
-              {activeTrial.isFollowUp && (
-                <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.6875rem] font-semibold text-amber-700 dark:text-amber-300">
-                  Spaced Follow-Up (D=2)
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
+    <div className="mx-auto max-w-3xl space-y-5">
+      <RoundHeader
+        title={focusSpec?.name ?? 'Coverage'}
+        subtitle={activeTrial.isFollowUp ? `${kindLabel} · follow-up` : kindLabel}
+        answered={round.answered}
+        roundLength={round.roundLength}
+        streak={round.streak}
+        elapsedMs={feedback ? feedback.responseTimeMs : elapsedMs}
+        fluencyMs={activeTrial.fluencyThresholdMs}
+        onExit={handleExitToFocusPicker}
+        showingFeedback={Boolean(feedback)}
+      />
 
-        <div className="flex items-center gap-2.5">
-          <MasteryBadge state={currentSkillMastery} size="sm" />
-          {!feedback && (
-            <button
-              type="button"
-              aria-expanded={Boolean(activeBreakdown)}
-              onClick={handleRequestGuidedBreakdown}
-              className="rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-3.5 py-1.5 text-[0.8125rem] font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20"
-            >
-              Show me what to look for (?)
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Main Prompt Card */}
       <section
         aria-labelledby="coverage-prompt-heading"
-        className="apple-card p-6 sm:p-8"
+        className="card space-y-5 p-5 sm:p-7"
+        key={activeTrial.trialNumber}
       >
-        {/* Non-punishing Fluency Indicator Bar */}
-        <div className="mb-5">
-          <div className="flex items-center justify-between text-[0.75rem] text-[var(--text-secondary)]">
-            <span>
-              {activeTrial.kind === 'coverage-tier'
-                ? 'Classify Official vs Limited vs None coverage (<3.5s fluency target)'
-                : activeTrial.kind === 'coverage-cluster'
-                  ? 'Identify the coverage outlier in this neighboring cluster'
-                  : 'Click all matching countries on the interactive map'}
-            </span>
-            <span className="font-mono">
-              {feedback
-                ? `${(feedback.responseTimeMs / 1000).toFixed(2)}s`
-                : `${(elapsedMs / 1000).toFixed(1)}s`}
-            </span>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <h2 id="coverage-prompt-heading" className="text-[1.375rem] font-black sm:text-[1.5rem]">
+              {prompt.promptTitle}
+            </h2>
+            <MasteryBadge state={feedback ? feedback.newMastery : currentSkillMastery} size="xs" />
           </div>
-          <div
-            aria-hidden="true"
-            className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-500/15"
-          >
-            <div
-              className={`h-full transition-all duration-75 ${
-                isWithinFluencyThreshold ? 'bg-emerald-500' : 'bg-amber-500'
-              }`}
-              style={{ width: `${fluencyRatio}%` }}
-            />
-          </div>
+          <p className="text-[0.9375rem] text-[var(--text-secondary)]">{prompt.promptDescription}</p>
         </div>
 
-        {/* Question Header */}
-        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="rounded-md bg-zinc-500/10 px-2.5 py-0.5 text-[0.75rem] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-              {activeTrial.kind === 'coverage-tier'
-                ? `${targetCountry.region} · Speed Coverage Classification`
-                : activeTrial.kind === 'coverage-cluster'
-                  ? `${prompt.clusterName ?? targetCountry.region} · Neighboring Cluster Quiz`
-                  : `${prompt.mapRegionLabel ?? targetCountry.region} · Regional Map Quiz`}
-            </span>
-
-            {activeTrial.kind === 'coverage-tier' && (
-              <span className="text-[0.75rem] text-[var(--text-secondary)]">
-                Region: <strong>{targetCountry.region}</strong> (
-                {targetCountry.subregion}) · Driving side:{' '}
-                <strong className="capitalize">
-                  {targetCountry.drivingSide}
-                </strong>
-              </span>
-            )}
-          </div>
-
-          <h2
-            id="coverage-prompt-heading"
-            className="mt-3 text-[1.25rem] font-bold tracking-tight sm:text-[1.5rem]"
-          >
-            {prompt.promptTitle}
-          </h2>
-          <p className="mt-1.5 text-[0.875rem] text-[var(--text-secondary)]">
-            {prompt.promptDescription}
-          </p>
-
-          {activeTrial.kind === 'coverage-tier' && (
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <div className="inline-flex items-center gap-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2.5">
-                <span className="font-mono text-[0.75rem] uppercase text-[var(--text-secondary)]">
-                  {targetCountry.id.toUpperCase()}
-                </span>
-                <span className="text-[1.25rem] font-bold">
-                  {targetCountry.name}
-                </span>
-                {targetCountry.isTrapCountry && (
-                  <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[0.75rem] font-semibold text-amber-800 dark:text-amber-200">
-                    High-Yield Coverage Check
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTrial.kind === 'coverage-map' && (
-            <p className="mt-2 text-[0.875rem] text-[var(--text-secondary)]">
-              Target in {prompt.mapRegionLabel ?? targetCountry.region}:{' '}
-              <strong>
-                {expectedCountryIds.length}{' '}
-                {expectedCountryIds.length === 1 ? 'country' : 'countries'}
-              </strong>{' '}
-              (
-              {prompt.mapTargetFilter === 'covered'
-                ? 'Official + Limited coverage'
-                : prompt.mapTargetFilter === 'uncovered'
-                  ? 'None — no official Google Street View'
-                  : 'Limited — regional corridors or trekker-only coverage'}
-              ).
+        {activeTrial.kind === 'coverage-tier' && (
+          <div className="rounded-2xl bg-[var(--surface-elevated)] p-6 text-center">
+            <p className="text-[2rem] font-black leading-tight sm:text-[2.5rem]">{targetCountry.name}</p>
+            <p className="mt-1 text-[0.8125rem] font-semibold text-[var(--text-secondary)]">
+              {targetCountry.subregion} · drives {targetCountry.drivingSide}
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Guided Breakdown Overlay (On-Demand Scaffolding) */}
+        {activeTrial.kind === 'coverage-map' && (
+          <p className="rounded-2xl bg-[var(--brand-soft)] px-4 py-2.5 text-[0.9375rem] font-bold">
+            Find {expectedCountryIds.length} {expectedCountryIds.length === 1 ? 'country' : 'countries'} in{' '}
+            {prompt.mapRegionLabel ?? targetCountry.region} with{' '}
+            {prompt.mapTargetFilter === 'covered'
+              ? 'official or limited coverage'
+              : prompt.mapTargetFilter === 'uncovered'
+                ? 'no Street View at all'
+                : 'limited coverage only'}
+            .
+          </p>
+        )}
+
+        {!feedback && !activeBreakdown && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              aria-expanded={false}
+              onClick={handleRequestGuidedBreakdown}
+              className="btn btn-ghost btn-sm !text-[var(--warn)]"
+            >
+              <Lightbulb aria-hidden="true" className="h-4 w-4" />
+              Show me what to look for
+              <kbd className="hidden text-[0.6875rem] opacity-70 sm:inline">?</kbd>
+            </button>
+          </div>
+        )}
+
         {activeBreakdown && !feedback && (
           <section
             aria-labelledby={breakdownHeadingId}
-            className="mt-5 rounded-2xl border-2 border-indigo-500/50 bg-indigo-500/8 p-5"
+            className="anim-rise space-y-4 rounded-2xl border-2 border-[var(--warn)] bg-[var(--warn-soft)] p-5"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <span className="text-[0.75rem] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">
-                  Guided Breakdown · Assisted Scaffolding
-                </span>
-                <h3
-                  id={breakdownHeadingId}
-                  className="mt-0.5 text-[1.125rem] font-bold"
-                >
-                  {activeBreakdown.languageName} (
-                  {activeBreakdown.nativeName})
-                </h3>
-                <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                  {activeBreakdown.gestaltNote}
+                <p className="flex items-center gap-1.5 text-[0.75rem] font-extrabold uppercase tracking-wider">
+                  <Lightbulb aria-hidden="true" className="h-4 w-4" /> Guided Breakdown · counts as a hint
                 </p>
+                <h3 id={breakdownHeadingId} className="mt-1 text-[1.125rem] font-black">
+                  {activeBreakdown.languageName} ({activeBreakdown.nativeName})
+                </h3>
+                <p className="text-[0.8125rem] text-[var(--text-secondary)]">{activeBreakdown.gestaltNote}</p>
               </div>
-              <button
-                type="button"
-                onClick={handleDismissGuidedBreakdown}
-                className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[0.75rem] font-medium"
-              >
-                Close (Esc)
-              </button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={handleDismissGuidedBreakdown} className="btn btn-ghost btn-sm">
+                  Hide
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeTrial.kind === 'coverage-map') {
+                      void handleSubmitCoverageMap(activeBreakdown.candidateCountries.map((c) => c.id));
+                    } else {
+                      void handleSelectOption(correctOptionId);
+                    }
+                  }}
+                  className="btn btn-primary btn-sm"
+                >
+                  Got it
+                  <kbd className="hidden text-[0.6875rem] opacity-80 sm:inline">Enter</kbd>
+                </button>
+              </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4">
-                <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                  Coverage Note & Regional Details
-                </p>
-                <p className="mt-2 text-[0.875rem]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="rounded-xl bg-[var(--surface-card)] p-4">
+                <p className="text-[0.8125rem] font-extrabold">Coverage note</p>
+                <p className="mt-1.5 text-[0.875rem]">
                   {activeBreakdown.coverageNote ?? activeBreakdown.contrastNote}
                 </p>
-                {activeBreakdown.regionalLimitedNotes &&
-                  activeBreakdown.regionalLimitedNotes.length > 0 && (
-                    <ul
-                      className="mt-2.5 space-y-1.5 text-[0.75rem]"
-                      role="list"
-                    >
-                      {activeBreakdown.regionalLimitedNotes.map((rn) => (
-                        <li
-                          key={rn.countryId}
-                          className="rounded-lg bg-amber-500/10 p-2"
-                        >
-                          <strong>{rn.countryName} (Limited):</strong>{' '}
-                          {rn.coverageNote}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                {activeBreakdown.regionalLimitedNotes && activeBreakdown.regionalLimitedNotes.length > 0 && (
+                  <ul className="mt-2.5 space-y-1.5 text-[0.75rem]" role="list">
+                    {activeBreakdown.regionalLimitedNotes.map((rn) => (
+                      <li key={rn.countryId} className="rounded-lg bg-[var(--warn-soft)] p-2">
+                        <strong>{rn.countryName} (Limited):</strong> {rn.coverageNote}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4">
-                <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                  Neighbor & Option Comparison
-                </p>
-                <ul className="mt-2.5 space-y-1.5 text-[0.75rem]" role="list">
+              <div className="rounded-xl bg-[var(--surface-card)] p-4">
+                <p className="text-[0.8125rem] font-extrabold">Compared with the others</p>
+                <ul className="mt-1.5 space-y-1.5 text-[0.75rem]" role="list">
                   {activeBreakdown.distractorEliminations.map((d) => (
-                    <li
-                      key={d.optionId}
-                      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1.5"
-                    >
+                    <li key={d.optionId}>
                       <strong>{d.languageName}:</strong>{' '}
-                      <span className="text-[var(--text-secondary)]">
-                        {d.reason}
-                      </span>
+                      <span className="text-[var(--text-secondary)]">{d.reason}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-indigo-500/20 pt-3">
-              <p className="text-[0.75rem] text-[var(--text-secondary)]">
-                Using Guided Breakdown marks this trial as{' '}
-                <strong>assisted</strong> and schedules 2 unassisted follow-up
-                trials after D=2 spacing.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  if (activeTrial.kind === 'coverage-map') {
-                    void handleSubmitCoverageMap(
-                      activeBreakdown.candidateCountries.map((c) => c.id)
-                    );
-                  } else {
-                    const correctId =
-                      activeTrial.kind === 'coverage-tier'
-                        ? `tier:${targetCountry.coverageTier}`
-                        : `cov:${targetCountry.id}`;
-                    void handleSelectOption(correctId);
-                  }
-                }}
-                className="rounded-xl bg-indigo-600 px-4 py-2 text-[0.8125rem] font-semibold text-white hover:bg-indigo-500"
-              >
-                Confirm Guided Answer (Enter) →
-              </button>
-            </div>
           </section>
         )}
 
-        {/* Answer Area: Speed Tier / Neighbor Cluster Buttons OR Interactive Regional Map */}
         {activeTrial.kind === 'coverage-map' ? (
-          <div className="mt-6 space-y-4">
+          <div className="space-y-4">
             <WorldMapView
               selectedCountryIds={selectedMapCountryIds}
               onToggleCountry={handleToggleMapCountry}
@@ -937,27 +728,20 @@ export function CoverageSectionView({
               activeRegionPreset={mapRegionPreset}
               onRegionPresetChange={setMapRegionPreset}
               readOnly={Boolean(feedback)}
-              highlightedCoverageCountryIds={
-                feedback ? feedback.mapHighlightedCountryIds : undefined
-              }
+              highlightedCoverageCountryIds={feedback ? feedback.mapHighlightedCountryIds : undefined}
             />
 
             {!feedback && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[var(--surface-elevated)] p-3.5">
                 <div className="flex flex-wrap items-center gap-1.5 text-[0.8125rem]">
-                  <span className="font-medium text-[var(--text-secondary)]">
+                  <span className="font-extrabold text-[var(--text-secondary)]">
                     Selected ({selectedMapCountryIds.length}):
                   </span>
                   {selectedMapCountryIds.length === 0 ? (
-                    <span className="text-[var(--text-secondary)]">
-                      Click countries on the map or territory pills above
-                    </span>
+                    <span className="text-[var(--text-secondary)]">Nothing yet — tap the map</span>
                   ) : (
                     selectedMapCountryIds.map((id) => (
-                      <span
-                        key={id}
-                        className="rounded-md bg-sky-500/15 px-2 py-0.5 text-[0.75rem] font-semibold text-sky-700 dark:text-sky-300"
-                      >
+                      <span key={id} className="chip !bg-[var(--brand-soft)] !text-[var(--brand-accent)]">
                         {PLAYABLE_COUNTRY_MAP[id]?.name ?? id}
                       </span>
                     ))
@@ -966,11 +750,7 @@ export function CoverageSectionView({
 
                 <div className="flex items-center gap-2">
                   {selectedMapCountryIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMapCountryIds([])}
-                      className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-[0.75rem] font-medium"
-                    >
+                    <button type="button" onClick={() => setSelectedMapCountryIds([])} className="btn btn-ghost btn-sm">
                       Clear
                     </button>
                   )}
@@ -978,221 +758,127 @@ export function CoverageSectionView({
                     type="button"
                     disabled={selectedMapCountryIds.length === 0}
                     onClick={() => void handleSubmitCoverageMap()}
-                    className="rounded-xl bg-[var(--brand-accent)] px-4 py-2 text-[0.875rem] font-semibold text-white disabled:opacity-40"
+                    className="btn btn-primary"
                   >
-                    Check Selected Countries (Enter)
+                    Check answer
+                    <kbd className="hidden text-[0.75rem] opacity-80 sm:inline">Enter</kbd>
                   </button>
                 </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="mt-6 space-y-5">
-            <div
-              className={`grid grid-cols-1 gap-3 ${
-                activeTrial.kind === 'coverage-tier'
-                  ? 'sm:grid-cols-3'
-                  : 'sm:grid-cols-2'
-              }`}
-              role="group"
-              aria-label="Coverage answer choices"
-            >
-              {activeTrial.options.map((opt, idx) => {
-                const isChosen =
-                  feedback?.chosenOptionId === opt.id ||
-                  feedback?.chosenOptionId === opt.languageId;
-                const isExpected =
-                  activeTrial.kind === 'coverage-tier'
-                    ? opt.id === `tier:${targetCountry.coverageTier}` ||
-                      opt.languageId === targetCountry.coverageTier
-                    : opt.id === `cov:${targetCountry.id}` ||
-                      opt.languageId === targetCountry.id;
-
-                let buttonStyle =
-                  'border-[var(--border-subtle)] bg-[var(--surface-elevated)] hover:border-[var(--brand-accent)]';
-                if (feedback) {
-                  if (isExpected) {
-                    buttonStyle =
-                      'border-emerald-500 bg-emerald-500/12 text-emerald-900 dark:text-emerald-100';
-                  } else if (isChosen && !feedback.correct) {
-                    buttonStyle =
-                      'border-rose-500 bg-rose-500/12 text-rose-900 dark:text-rose-100';
-                  } else {
-                    buttonStyle =
-                      'border-[var(--border-subtle)] bg-[var(--surface-canvas)] opacity-60';
-                  }
-                }
-
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    disabled={Boolean(feedback)}
-                    onClick={() => void handleSelectOption(opt.id)}
-                    className={`flex items-center justify-between rounded-xl border-2 px-4 py-3.5 text-left transition ${buttonStyle}`}
-                  >
-                    <div>
-                      <p className="text-[0.9375rem] font-semibold">
-                        {opt.label}
-                      </p>
-                      {opt.sublabel && (
-                        <p className="text-[0.75rem] text-[var(--text-secondary)]">
-                          {opt.sublabel}
-                        </p>
-                      )}
-                    </div>
-                    <kbd className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2 py-0.5 font-mono text-[0.75rem] text-[var(--text-secondary)]">
-                      {idx + 1}
-                    </kbd>
-                  </button>
-                );
-              })}
-            </div>
+          <div
+            className={`grid grid-cols-1 gap-3 ${activeTrial.kind === 'coverage-tier' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
+            role="group"
+            aria-label="Coverage answer choices"
+          >
+            {activeTrial.options.map((opt, idx) => (
+              <AnswerTile
+                key={opt.id}
+                label={opt.label}
+                sublabel={opt.sublabel}
+                shortcutKey={idx + 1}
+                disabled={Boolean(feedback)}
+                state={optionState(opt.id, opt.languageId)}
+                onClick={() => void handleSelectOption(opt.id)}
+              />
+            ))}
           </div>
         )}
+      </section>
 
-        {/* Immediate Post-Answer Coverage Feedback & Map Reveal */}
-        {feedback && (
-          <div
-            role="status"
-            aria-live="polite"
-            className={`mt-6 rounded-2xl border-2 p-5 ${
-              feedback.correct
-                ? 'border-emerald-500/50 bg-emerald-500/8'
-                : 'border-amber-500/50 bg-amber-500/8'
-            }`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-[0.75rem] font-bold uppercase ${
-                      feedback.correct
-                        ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200'
-                        : 'bg-amber-500/20 text-amber-800 dark:text-amber-200'
-                    }`}
+      {feedback && (
+        <details className="card group p-5 sm:p-6" open={!feedback.correct}>
+          <summary className="cursor-pointer list-none text-[1rem] font-extrabold [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-2">
+              <Lightbulb aria-hidden="true" className="h-5 w-5 text-[var(--warn)]" />
+              Learn more about {feedback.countryName}
+              <span className="text-[0.8125rem] font-semibold text-[var(--text-secondary)] group-open:hidden">
+                (tap to see)
+              </span>
+            </span>
+          </summary>
+
+          <div className="mt-4 space-y-4">
+            <p className="text-[0.9375rem]">
+              <TierChip tier={feedback.coverageTier} /> {feedback.coverageNote}
+            </p>
+
+            {feedback.mapEvaluation && (
+              <div className="grid grid-cols-1 gap-3 text-[0.8125rem] sm:grid-cols-3">
+                {[
+                  { title: 'Correct', ids: feedback.mapEvaluation.correctCountryIds, color: 'var(--good)' },
+                  { title: 'Missed', ids: feedback.mapEvaluation.missedCountryIds, color: 'var(--warn)' },
+                  { title: 'Wrong taps', ids: feedback.mapEvaluation.incorrectCountryIds, color: 'var(--bad)' },
+                ].map(({ title, ids, color }) => (
+                  <div
+                    key={title}
+                    className="rounded-xl border-2 p-3"
+                    style={{ borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }}
                   >
-                    {feedback.correct
-                      ? feedback.assisted
-                        ? 'Assisted Match'
-                        : 'Correct'
-                      : 'Coverage Distinction Review'}
-                  </span>
-
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[0.75rem] font-semibold ${
-                      COVERAGE_TIER_BADGE_STYLES[feedback.coverageTier]
-                        .badgeClass
-                    }`}
-                  >
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        COVERAGE_TIER_BADGE_STYLES[feedback.coverageTier]
-                          .dotClass
-                      }`}
-                    />
-                    {feedback.countryName}:{' '}
-                    {COVERAGE_TIER_BADGE_STYLES[feedback.coverageTier].label}
-                  </span>
-
-                  <span className="text-[0.8125rem] text-[var(--text-secondary)]">
-                    {(feedback.responseTimeMs / 1000).toFixed(2)}s · Mastery:{' '}
-                  </span>
-                  <MasteryBadge state={feedback.newMastery} size="xs" />
-                </div>
-
-                {/* Exact Country Coverage Note */}
-                <p className="mt-2.5 text-[0.9375rem] font-medium text-[var(--text-primary)]">
-                  <strong>{feedback.countryName}</strong> (
-                  <span className="uppercase">{feedback.coverageTier}</span>
-                  ): {feedback.coverageNote}
-                </p>
-
-                {/* Map Evaluation Summary for Regional Map Drills */}
-                {feedback.mapEvaluation && (
-                  <div className="mt-3 space-y-1 text-[0.8125rem]">
-                    <p>
-                      <strong>Regional Map Check:</strong>{' '}
-                      {feedback.mapEvaluation.correctCountryIds.length} of{' '}
-                      {feedback.mapEvaluation.expectedCountryIds.length}{' '}
-                      target countries identified.
+                    <p className="font-extrabold">
+                      {title} ({ids.length})
                     </p>
-                    {feedback.mapEvaluation.missedCountryIds.length > 0 && (
-                      <p className="text-amber-700 dark:text-amber-300">
-                        <strong>Missed on map:</strong>{' '}
-                        {feedback.mapEvaluation.missedCountryIds
-                          .map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id)
-                          .join(', ')}
-                      </p>
-                    )}
-                    {feedback.mapEvaluation.incorrectCountryIds.length > 0 && (
-                      <p className="text-rose-700 dark:text-rose-300">
-                        <strong>False alarms:</strong>{' '}
-                        {feedback.mapEvaluation.incorrectCountryIds
-                          .map((id) => {
-                            const c = PLAYABLE_COUNTRY_MAP[id];
-                            return c ? `${c.name} (${c.coverageTier})` : id;
-                          })
-                          .join(', ')}
-                      </p>
-                    )}
+                    <p className="mt-1 text-[var(--text-secondary)]">
+                      {ids
+                        .map((id) => {
+                          const c = PLAYABLE_COUNTRY_MAP[id];
+                          return c ? `${c.name} (${c.coverageTier})` : id;
+                        })
+                        .join(', ') || 'None'}
+                    </p>
                   </div>
-                )}
+                ))}
               </div>
+            )}
 
-              <button
-                type="button"
-                onClick={handleNextTrial}
-                className="shrink-0 rounded-xl bg-[var(--brand-accent)] px-5 py-2.5 text-[0.875rem] font-semibold text-white shadow-xs hover:opacity-95"
-              >
-                Next Trial (Enter) →
-              </button>
-            </div>
-
-            {/* Specific Regional Coverage Notes for Limited Countries */}
             {feedback.regionalLimitedNotes.length > 0 && (
-              <div className="mt-4 rounded-xl border border-amber-500/35 bg-amber-500/10 p-4">
-                <p className="text-[0.75rem] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-200">
-                  Regional Street View Coverage Notes (Limited Coverage)
-                </p>
+              <div className="rounded-2xl bg-[var(--warn-soft)] p-4">
+                <p className="text-[0.875rem] font-extrabold">Regional Street View Coverage Notes (Limited Coverage)</p>
                 <ul className="mt-2 space-y-1.5 text-[0.8125rem]" role="list">
                   {feedback.regionalLimitedNotes.map((rn) => (
                     <li key={rn.countryId}>
-                      <strong>{rn.countryName} (Limited):</strong>{' '}
-                      <span className="text-[var(--text-primary)]">
-                        {rn.coverageNote}
-                      </span>
+                      <strong>{rn.countryName}:</strong> {rn.coverageNote}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {/* Interactive Map Reveal showing Exact Coverage Tier for Speed & Cluster Drills */}
             {activeTrial.kind !== 'coverage-map' && (
-              <div className="mt-4 space-y-2 border-t border-[var(--border-subtle)] pt-4">
-                <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                  Exact Coverage Tier on the Map (
-                  {activeTrial.kind === 'coverage-cluster'
-                    ? 'Neighboring Cluster Comparison'
-                    : `${feedback.countryName} — ${feedback.coverageTier.toUpperCase()}`}
-                  )
-                </p>
+              <div className="space-y-2">
+                <p className="text-[0.875rem] font-extrabold">Exact Coverage Tier on the Map</p>
                 <WorldMapView
                   selectedCountryIds={[]}
                   onToggleCountry={() => {}}
                   activeRegionPreset={mapRegionPreset}
                   onRegionPresetChange={setMapRegionPreset}
                   readOnly={true}
-                  highlightedCoverageCountryIds={
-                    feedback.mapHighlightedCountryIds
-                  }
+                  highlightedCoverageCountryIds={feedback.mapHighlightedCountryIds}
                 />
               </div>
             )}
           </div>
-        )}
-      </section>
+        </details>
+      )}
+
+      {feedback && (
+        <FeedbackBanner
+          correct={feedback.correct}
+          seed={activeTrial.trialNumber}
+          answer={
+            feedback.mapEvaluation
+              ? feedback.correct
+                ? 'You found them all!'
+                : `${feedback.mapEvaluation.correctCountryIds.length} of ${feedback.mapEvaluation.expectedCountryIds.length} found`
+              : `${feedback.countryName}: ${TIER_STYLE[feedback.coverageTier].label.toLowerCase()}`
+          }
+          detail={formatSpeed(feedback.responseTimeMs, feedback.fluencyTargetMs, feedback.assisted, feedback.correct)}
+          continueLabel={round.isComplete ? 'See results' : 'Continue'}
+          onContinue={handleContinue}
+        />
+      )}
     </div>
   );
 }

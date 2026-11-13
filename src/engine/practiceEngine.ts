@@ -679,6 +679,21 @@ export interface SessionStats {
   correctCount: number;
   fluentCount: number;
   averageResponseTimeMs: number;
+  /** Consecutive correct answers ending at the latest trial. */
+  currentStreak: number;
+  /** Longest run of consecutive correct answers this session. */
+  bestStreak: number;
+}
+
+function createEmptySessionStats(): SessionStats {
+  return {
+    trialsCompleted: 0,
+    correctCount: 0,
+    fluentCount: 0,
+    averageResponseTimeMs: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+  };
 }
 
 interface FollowUpQueueItem {
@@ -904,12 +919,7 @@ export class PracticeEngine {
   private pairConfusionsSinceTrigger = new Map<string, number>();
   private sessionPairBoostBySkill = new Map<string, number>();
 
-  private sessionStats: SessionStats = {
-    trialsCompleted: 0,
-    correctCount: 0,
-    fluentCount: 0,
-    averageResponseTimeMs: 0,
-  };
+  private sessionStats: SessionStats = createEmptySessionStats();
 
   constructor(
     store: ProgressStore,
@@ -943,12 +953,7 @@ export class PracticeEngine {
     this.activeGuidedBreakdown = null;
     this.lastFeedback = null;
     this.lastCoverageFeedback = null;
-    this.sessionStats = {
-      trialsCompleted: 0,
-      correctCount: 0,
-      fluentCount: 0,
-      averageResponseTimeMs: 0,
-    };
+    this.sessionStats = createEmptySessionStats();
 
     if (
       config.groupId !== 'all-mixed' &&
@@ -1014,12 +1019,7 @@ export class PracticeEngine {
     this.lastFeedback = null;
     this.lastCoverageFeedback = null;
     this.lastDrivingFeedback = null;
-    this.sessionStats = {
-      trialsCompleted: 0,
-      correctCount: 0,
-      fluentCount: 0,
-      averageResponseTimeMs: 0,
-    };
+    this.sessionStats = createEmptySessionStats();
     this.domainsCurrenciesFeedback = null;
   }
 
@@ -1105,6 +1105,29 @@ export class PracticeEngine {
 
   getSessionStats(): SessionStats {
     return { ...this.sessionStats };
+  }
+
+  private recordSessionResult(
+    correct: boolean,
+    fluent: boolean,
+    responseTimeMs: number
+  ): void {
+    const stats = this.sessionStats;
+    const prevTotalRt = stats.averageResponseTimeMs * stats.trialsCompleted;
+    stats.trialsCompleted += 1;
+    if (correct) {
+      stats.correctCount += 1;
+      stats.currentStreak += 1;
+      stats.bestStreak = Math.max(stats.bestStreak, stats.currentStreak);
+    } else {
+      stats.currentStreak = 0;
+    }
+    if (fluent) {
+      stats.fluentCount += 1;
+    }
+    stats.averageResponseTimeMs = Math.round(
+      (prevTotalRt + responseTimeMs) / stats.trialsCompleted
+    );
   }
 
   /**
@@ -1481,17 +1504,10 @@ export class PracticeEngine {
       };
     }
 
-    const prevTotalRt =
-      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
-    this.sessionStats.trialsCompleted += 1;
-    if (correct) {
-      this.sessionStats.correctCount += 1;
-      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
-        this.sessionStats.fluentCount += 1;
-      }
-    }
-    this.sessionStats.averageResponseTimeMs = Math.round(
-      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    this.recordSessionResult(
+      correct,
+      correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      responseTimeMs
     );
 
     await this.store.recordAttempt({
@@ -1640,17 +1656,10 @@ export class PracticeEngine {
       trial.fluencyThresholdMs
     );
 
-    const prevTotalRt =
-      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
-    this.sessionStats.trialsCompleted += 1;
-    if (correct) {
-      this.sessionStats.correctCount += 1;
-      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
-        this.sessionStats.fluentCount += 1;
-      }
-    }
-    this.sessionStats.averageResponseTimeMs = Math.round(
-      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    this.recordSessionResult(
+      correct,
+      correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      responseTimeMs
     );
 
     await this.store.recordAttempt({
@@ -2096,17 +2105,10 @@ export class PracticeEngine {
       trial.fluencyThresholdMs
     );
 
-    const prevTotalRt =
-      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
-    this.sessionStats.trialsCompleted += 1;
-    if (correct) {
-      this.sessionStats.correctCount += 1;
-      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
-        this.sessionStats.fluentCount += 1;
-      }
-    }
-    this.sessionStats.averageResponseTimeMs = Math.round(
-      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    this.recordSessionResult(
+      correct,
+      correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      responseTimeMs
     );
 
     await this.store.recordAttempt({
@@ -2221,17 +2223,10 @@ export class PracticeEngine {
       trial.fluencyThresholdMs
     );
 
-    const prevTotalRt =
-      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
-    this.sessionStats.trialsCompleted += 1;
-    if (correct) {
-      this.sessionStats.correctCount += 1;
-      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
-        this.sessionStats.fluentCount += 1;
-      }
-    }
-    this.sessionStats.averageResponseTimeMs = Math.round(
-      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    this.recordSessionResult(
+      correct,
+      correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      responseTimeMs
     );
 
     await this.store.recordAttempt({
@@ -3166,17 +3161,10 @@ export class PracticeEngine {
       trial.fluencyThresholdMs
     );
 
-    const prevTotalRt =
-      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
-    this.sessionStats.trialsCompleted += 1;
-    if (correct) {
-      this.sessionStats.correctCount += 1;
-      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
-        this.sessionStats.fluentCount += 1;
-      }
-    }
-    this.sessionStats.averageResponseTimeMs = Math.round(
-      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    this.recordSessionResult(
+      correct,
+      correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      responseTimeMs
     );
 
     await this.store.recordAttempt({
@@ -3297,17 +3285,10 @@ export class PracticeEngine {
       trial.fluencyThresholdMs
     );
 
-    const prevTotalRt =
-      this.sessionStats.averageResponseTimeMs * this.sessionStats.trialsCompleted;
-    this.sessionStats.trialsCompleted += 1;
-    if (correct) {
-      this.sessionStats.correctCount += 1;
-      if (!assisted && responseTimeMs <= trial.fluencyThresholdMs) {
-        this.sessionStats.fluentCount += 1;
-      }
-    }
-    this.sessionStats.averageResponseTimeMs = Math.round(
-      (prevTotalRt + responseTimeMs) / this.sessionStats.trialsCompleted
+    this.recordSessionResult(
+      correct,
+      correct && !assisted && responseTimeMs <= trial.fluencyThresholdMs,
+      responseTimeMs
     );
 
     await this.store.recordAttempt({

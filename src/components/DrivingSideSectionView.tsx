@@ -19,8 +19,18 @@ import {
 } from '../engine/practiceEngine.ts';
 import type { ProgressData } from '../storage/index.ts';
 import { buildHighlightedTextSegments } from '../utils/highlightSpans.ts';
+import { Lightbulb, Map as MapIcon, Play, Zap } from 'lucide-react';
+import { AnswerTile, getAnswerTileState } from './game/AnswerTile.tsx';
+import { FeedbackBanner, formatSpeed } from './game/FeedbackBanner.tsx';
+import { RoundHeader } from './game/RoundHeader.tsx';
+import { RoundResults } from './game/RoundResults.tsx';
+import { SectionPickerHeader } from './game/SectionPickerHeader.tsx';
+import { useRound } from './game/useRound.ts';
 import { MasteryBadge } from './MasteryBadge.tsx';
+import { SECTION_META } from './sectionMeta.ts';
 import { WorldMapView } from './WorldMapView.tsx';
+
+const META = SECTION_META['driving-side'];
 
 interface DrivingSideSectionViewProps {
   engine: PracticeEngine;
@@ -44,38 +54,32 @@ const DRILL_MODE_OPTIONS: Array<{
 }> = [
   {
     id: 'mixed',
-    label: 'Mixed Drills (Adaptive)',
+    label: 'Mixed',
     shortLabel: 'Mixed',
-    description:
-      'Interleaves Rapid Left/Right Speed Drills, Regional Map Drills, and Multi-Clue Narrowing.',
+    description: 'A bit of everything',
   },
   {
     id: 'speed-left-right',
-    label: 'Left / Right Speed Drills',
-    shortLabel: 'Left/Right Speed',
-    description:
-      'Rapid 2-choice Left-Hand vs Right-Hand Traffic drills (<2.5s fluency target) with tricky border focus.',
+    label: 'Left or right?',
+    shortLabel: 'Left or right',
+    description: 'Fast two-button calls',
   },
   {
     id: 'regional-map',
-    label: 'Regional Map Drills',
-    shortLabel: 'Regional Map',
-    description:
-      'Click every left-driving covered country in Europe, Southern & Eastern Africa, South & SE Asia, Oceania, or Americas & Caribbean.',
+    label: 'Map it',
+    shortLabel: 'Map',
+    description: 'Tap the left-driving countries',
   },
   {
     id: 'multi-clue-narrowing',
-    label: 'Multi-Clue Narrowing',
-    shortLabel: 'Multi-Clue',
-    description:
-      'Combine driving side with a second script or Sign Text clue and select the matching Candidate Countries on the map.',
+    label: 'Combine clues',
+    shortLabel: 'Combine clues',
+    description: 'Driving side + a sign',
   },
 ];
 
 function formatDrivingSideLabel(side: DrivingSide): string {
-  return side === 'left'
-    ? 'Left-Hand Traffic (LHT)'
-    : 'Right-Hand Traffic (RHT)';
+  return side === 'left' ? 'Drives on the left' : 'Drives on the right';
 }
 
 function renderSignSampleText(
@@ -146,14 +150,35 @@ export function DrivingSideSectionView({
   const [referenceMapPreset, setReferenceMapPreset] =
     useState<MapRegionPresetId>('world');
   const [elapsedMs, setElapsedMs] = useState(0);
+  const round = useRound();
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   const guideSectionRef = useRef<HTMLElement>(null);
+
+  const recordFeedback = (result: DrivingSideTrialFeedback) => {
+    round.record({
+      correct: result.correct,
+      fluent: result.correct && result.isFluentSpeed && !result.assisted,
+      responseTimeMs: result.responseTimeMs,
+      label: result.countryName,
+      sublabel: result.drivingSide === 'left' ? 'left' : 'right',
+    });
+  };
+
+  const exitToPicker = () => {
+    round.reset();
+    setSelectedFocus(null);
+    setCurrentTrial(null);
+    setFeedback(null);
+    setGuidedBreakdown(null);
+    setSelectedMapCountryIds([]);
+  };
 
   const startFocusSession = (
     focusId: DrivingSideFocusId,
     mode: DrivingSideDrillMode = drillMode
   ) => {
+    round.reset();
     setSelectedFocus(focusId);
     setDrillMode(mode);
     setFeedback(null);
@@ -210,6 +235,7 @@ export function DrivingSideSectionView({
     }
     const result = await engine.submitDrivingSideAnswer(`side:${side}`);
     setFeedback(result);
+    recordFeedback(result);
   };
 
   const handleToggleMapCountry = (countryId: string) => {
@@ -232,6 +258,7 @@ export function DrivingSideSectionView({
     }
     const result = await engine.submitDrivingMapAnswer(selectedMapCountryIds);
     setFeedback(result);
+    recordFeedback(result);
   };
 
   const handleRequestGuidedBreakdown = () => {
@@ -252,6 +279,19 @@ export function DrivingSideSectionView({
     }
   };
 
+  const handleContinue = () => {
+    if (round.isComplete) {
+      round.finish();
+      return;
+    }
+    handleAdvanceNext();
+  };
+
+  const handlePlayAgain = () => {
+    round.reset();
+    handleAdvanceNext();
+  };
+
   const scrollToFieldGuide = () => {
     guideSectionRef.current?.scrollIntoView({
       behavior: 'smooth',
@@ -269,14 +309,14 @@ export function DrivingSideSectionView({
         return;
       }
 
+      if (event.target instanceof Element && event.target.closest('details, dialog')) {
+        return;
+      }
+
       if (event.key === 'Escape') {
         if (selectedFocus) {
           event.preventDefault();
-          setSelectedFocus(null);
-          setCurrentTrial(null);
-          setFeedback(null);
-          setGuidedBreakdown(null);
-          setSelectedMapCountryIds([]);
+          exitToPicker();
         } else {
           event.preventDefault();
           onBackToDashboard();
@@ -287,9 +327,13 @@ export function DrivingSideSectionView({
       if (!currentTrial) return;
 
       if (feedback) {
-        if (event.key === 'Enter' || event.key === ' ') {
+        // A focused Continue button already handles Enter/Space via click.
+        if (
+          (event.key === 'Enter' || event.key === ' ') &&
+          !(event.target instanceof HTMLButtonElement)
+        ) {
           event.preventDefault();
-          handleAdvanceNext();
+          handleContinue();
         }
         return;
       }
@@ -1358,98 +1402,68 @@ export function DrivingSideSectionView({
   if (!selectedFocus || !currentTrial || !currentTrial.drivingPrompt) {
     return (
       <div className="space-y-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <button
-              type="button"
-              onClick={onBackToDashboard}
-              className="mb-2 inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            >
-              ← Back to Dashboard
-            </button>
-            <h1
-              ref={headingRef}
-              tabIndex={-1}
-              className="text-[1.75rem] font-bold tracking-tight sm:text-[2rem]"
-            >
-              Driving Side Section
-            </h1>
-            <p className="mt-1 max-w-3xl text-[0.9375rem] text-[var(--text-secondary)]">
-              Build instant spatial recall of{' '}
-              <strong>Left-Hand vs Right-Hand Traffic</strong> across all{' '}
-              <strong>Playable Countries</strong>, master tricky regional border
-              flips, intersect driving side with language/script{' '}
-              <strong>Tells</strong>, and spot driving side without cars using
-              road geometry.
-            </p>
-          </div>
+        <SectionPickerHeader
+          sectionId="driving-side"
+          headingRef={headingRef}
+          onBack={onBackToDashboard}
+          title="Driving Side"
+          description="Know instantly whether a country drives on the left or right — even with no cars in sight."
+        />
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={scrollToFieldGuide}
-              className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-2.5 text-[0.875rem] font-semibold transition hover:border-[var(--brand-accent)]"
-            >
-              Road Geometry Guide ↓
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                startFocusSession('tricky-borders', 'speed-left-right')
-              }
-              className="rounded-xl bg-[var(--brand-accent)] px-4 py-2.5 text-[0.875rem] font-semibold text-white shadow-xs hover:opacity-95"
-            >
-              Drill Tricky Borders (Speed) →
-            </button>
-          </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => startFocusSession('world', 'mixed')}
+            className="card flex items-center gap-4 p-5 text-left transition hover:-translate-y-0.5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: META.color }}>
+              <Play aria-hidden="true" className="h-6 w-6" fill="currentColor" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[1.125rem] font-black">Quick play: whole world</span>
+              <span className="block text-[0.875rem] text-[var(--text-secondary)]">Mixed questions from every region.</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => startFocusSession('tricky-borders', 'speed-left-right')}
+            className="card flex items-center gap-4 p-5 text-left transition hover:-translate-y-0.5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--xp)] text-white">
+              <Zap aria-hidden="true" className="h-6 w-6" fill="currentColor" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[1.125rem] font-black">Tricky borders speed run</span>
+              <span className="block text-[0.875rem] text-[var(--text-secondary)]">Neighbors that drive on opposite sides.</span>
+            </span>
+          </button>
         </div>
 
         {/* Drill Mode Selector */}
-        <section
-          aria-labelledby="driving-drill-mode-heading"
-          className="apple-card p-5"
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2
-                id="driving-drill-mode-heading"
-                className="text-[0.9375rem] font-semibold"
-              >
-                Select Drill Mode
-              </h2>
-              <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                Choose a specific drill format or run Mixed Adaptive Drills
-                scheduled by ARTS (&lt;2.5s speed ceiling).
-              </p>
-            </div>
-            <div
-              className="flex flex-wrap gap-1.5"
-              role="group"
-              aria-label="Driving Side drill modes"
-            >
-              {DRILL_MODE_OPTIONS.map((option) => {
-                const isActive = drillMode === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={isActive}
-                    onClick={() => setDrillMode(option.id)}
-                    className={`rounded-lg px-3 py-1.5 text-[0.8125rem] font-medium transition ${
-                      isActive
-                        ? 'bg-[var(--brand-accent)] text-white font-semibold'
-                        : 'border border-[var(--border-subtle)] bg-[var(--surface-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    {option.shortLabel}
-                  </button>
-                );
-              })}
-            </div>
+        <section aria-labelledby="driving-drill-mode-heading" className="space-y-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="driving-drill-mode-heading" className="text-[0.875rem] font-extrabold text-[var(--text-secondary)]">
+              Question style
+            </h2>
+            <button type="button" onClick={scrollToFieldGuide} className="btn btn-ghost btn-sm">
+              How to spot it without cars ↓
+            </button>
           </div>
-          <p className="mt-2.5 text-[0.8125rem] text-[var(--text-secondary)]">
-            {DRILL_MODE_OPTIONS.find((o) => o.id === drillMode)?.description}
-          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Driving Side drill modes">
+            {DRILL_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={drillMode === option.id}
+                onClick={() => setDrillMode(option.id)}
+                data-state={drillMode === option.id ? 'selected' : 'idle'}
+                className="answer-tile !min-h-0 !flex-col !items-start !gap-0 !py-2.5"
+              >
+                <span className="text-[0.9375rem] font-extrabold">{option.label}</span>
+                <span className="text-[0.75rem] font-semibold text-[var(--text-secondary)]">{option.description}</span>
+              </button>
+            ))}
+          </div>
         </section>
 
         {/* Regional & Global Focus Cards */}
@@ -1459,9 +1473,9 @@ export function DrivingSideSectionView({
         >
           <h2
             id="driving-focus-cards-heading"
-            className="text-[1.125rem] font-semibold"
+            className="text-[1.375rem] font-black"
           >
-            Choose a Regional or Border Focus
+            Pick a region
           </h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {DRIVING_SIDE_FOCUS_OPTIONS.map((focusSpec) => {
@@ -1481,85 +1495,39 @@ export function DrivingSideSectionView({
               return (
                 <article
                   key={focusSpec.id}
-                  className="apple-card flex flex-col justify-between p-5"
+                  className="card flex flex-col gap-3 p-5"
                 >
-                  <div>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-[1.0625rem] font-semibold">
-                          {focusSpec.name}
-                        </h3>
-                        <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                          {focusSpec.description}
-                        </p>
-                      </div>
-                      <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[0.75rem] font-medium">
-                        {masteredCount}/{focusCountries.length} Mastered
-                      </span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-[1.125rem] font-black">{focusSpec.name}</h3>
+                      <p className="mt-0.5 text-[0.875rem] text-[var(--text-secondary)]">
+                        {focusSpec.description}
+                      </p>
                     </div>
-
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {focusSpec.highlightExamples.map((ex) => (
-                        <span
-                          key={ex}
-                          className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2 py-0.5 font-mono text-[0.6875rem] text-[var(--text-secondary)]"
-                        >
-                          {ex}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2 text-[0.75rem]">
-                      <span className="rounded-md bg-indigo-500/15 px-2.5 py-1 font-medium text-indigo-700 dark:text-indigo-300">
-                        L Left-Hand Covered: {coveredLeftCount}
-                      </span>
-                      <span className="rounded-md bg-teal-500/15 px-2.5 py-1 font-medium text-teal-700 dark:text-teal-300">
-                        R Right-Hand Covered: {coveredRightCount}
-                      </span>
-                    </div>
+                    <span className="chip shrink-0" title="Mastered countries">
+                      {masteredCount}/{focusCountries.length}
+                    </span>
                   </div>
 
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-4">
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          startFocusSession(focusSpec.id, 'speed-left-right')
-                        }
-                        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
-                      >
-                        Speed Drill
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          startFocusSession(focusSpec.id, 'regional-map')
-                        }
-                        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
-                      >
-                        Map Drill
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          startFocusSession(
-                            focusSpec.id,
-                            'multi-clue-narrowing'
-                          )
-                        }
-                        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
-                      >
-                        Multi-Clue
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => startFocusSession(focusSpec.id, drillMode)}
-                      className="rounded-lg bg-[var(--brand-accent)] px-4 py-1.5 text-[0.8125rem] font-semibold text-white hover:opacity-95"
-                    >
-                      Practice {focusSpec.shortName} →
-                    </button>
+                  <div className="flex flex-wrap gap-1.5">
+                    {focusSpec.highlightExamples.map((ex) => (
+                      <span key={ex} className="chip font-mono">{ex}</span>
+                    ))}
                   </div>
+
+                  <p className="text-[0.8125rem] font-bold text-[var(--text-secondary)]">
+                    {coveredLeftCount} drive left · {coveredRightCount} drive right
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => startFocusSession(focusSpec.id, drillMode)}
+                    className="btn mt-auto w-full text-white"
+                    style={{ backgroundColor: META.color, borderColor: `color-mix(in srgb, ${META.color} 75%, black)` }}
+                  >
+                    <Play aria-hidden="true" className="h-4 w-4" fill="currentColor" />
+                    Play {focusSpec.shortName}
+                  </button>
                 </article>
               );
             })}
@@ -1578,13 +1546,13 @@ export function DrivingSideSectionView({
             <div>
               <h2
                 id="driving-reference-map-heading"
-                className="text-[1.125rem] font-semibold"
+                className="flex items-center gap-2 text-[1.25rem] font-black"
               >
-                Interactive World Driving Side Reference Map
+                <MapIcon aria-hidden="true" className="h-5 w-5" style={{ color: META.color }} />
+                Driving side world map
               </h2>
-              <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                Explore Left-Hand Traffic (L) vs Right-Hand Traffic (R) across
-                all 145 Playable Countries and GeoGuessr territory pills.
+              <p className="text-[0.875rem] text-[var(--text-secondary)]">
+                Explore who drives left (L) and right (R) across every Playable Country.
               </p>
             </div>
           </div>
@@ -1603,186 +1571,87 @@ export function DrivingSideSectionView({
     );
   }
 
+  // Round results
+  if (round.showResults) {
+    return (
+      <RoundResults
+        sectionLabel={DRIVING_SIDE_FOCUS_MAP[selectedFocus].name}
+        summary={round.summary}
+        onPlayAgain={handlePlayAgain}
+        onBack={exitToPicker}
+        backLabel="All regions"
+      />
+    );
+  }
+
   // Active Session View
   const focusSpec = DRIVING_SIDE_FOCUS_MAP[selectedFocus];
   const prompt = currentTrial.drivingPrompt;
   const targetCountry = prompt.targetCountry;
   const expectedCountryIds = prompt.expectedCountryIds ?? [targetCountry.id];
-  const fluencyRatio = Math.min(
-    1,
-    elapsedMs / DRIVING_SIDE_FLUENCY_THRESHOLD_MS
-  );
-  const isOverFluencyThreshold = elapsedMs > DRIVING_SIDE_FLUENCY_THRESHOLD_MS;
+  const kindLabel =
+    currentTrial.kind === 'driving-speed'
+      ? 'Left or right?'
+      : currentTrial.kind === 'driving-map'
+        ? 'Map it'
+        : 'Combine clues';
 
   return (
-    <div className="space-y-6">
-      {/* Top Session Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedFocus(null);
-              setCurrentTrial(null);
-              setFeedback(null);
-              setGuidedBreakdown(null);
-              setSelectedMapCountryIds([]);
-            }}
-            className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[0.8125rem] font-medium hover:bg-zinc-500/10"
-          >
-            ← All Driving Side Focuses
-          </button>
-          <div>
-            <h1
-              ref={headingRef}
-              tabIndex={-1}
-              className="text-[1.125rem] font-semibold"
-            >
-              {focusSpec.name}
-            </h1>
-            <p className="text-[0.75rem] text-[var(--text-secondary)]">
-              Mode:{' '}
-              {DRILL_MODE_OPTIONS.find((m) => m.id === drillMode)?.shortLabel ??
-                'Mixed'}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div
-            className="flex flex-wrap gap-1"
-            role="group"
-            aria-label="Switch Driving Side drill mode"
-          >
-            {DRILL_MODE_OPTIONS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={drillMode === option.id}
-                onClick={() => startFocusSession(selectedFocus, option.id)}
-                className={`rounded-lg px-2.5 py-1 text-[0.75rem] font-medium transition ${
-                  drillMode === option.id
-                    ? 'bg-[var(--brand-accent)] text-white font-semibold'
-                    : 'border border-[var(--border-subtle)] bg-[var(--surface-canvas)] text-[var(--text-secondary)]'
-                }`}
-              >
-                {option.shortLabel}
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={scrollToFieldGuide}
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-2.5 py-1 text-[0.75rem] font-medium hover:border-[var(--brand-accent)]"
-          >
-            Road Geometry Guide ↓
-          </button>
-
-          {!feedback && (
-            <button
-              type="button"
-              onClick={handleRequestGuidedBreakdown}
-              aria-expanded={Boolean(guidedBreakdown)}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-1.5 text-[0.8125rem] font-medium hover:border-[var(--brand-accent)]"
-            >
-              {guidedBreakdown
-                ? 'Guided Breakdown Active'
-                : 'Not sure? Show Breakdown (?)'}
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="mx-auto max-w-3xl space-y-5">
+      <RoundHeader
+        title={focusSpec.name}
+        subtitle={kindLabel}
+        answered={round.answered}
+        roundLength={round.roundLength}
+        streak={round.streak}
+        elapsedMs={feedback ? feedback.responseTimeMs : elapsedMs}
+        fluencyMs={DRIVING_SIDE_FLUENCY_THRESHOLD_MS}
+        onExit={exitToPicker}
+        showingFeedback={Boolean(feedback)}
+      />
 
       {/* Main Trial Card */}
       <section
-        aria-label="Driving Side Drill Trial"
-        className="apple-card p-6 sm:p-8 space-y-6"
+        aria-label="Driving Side question"
+        className="card space-y-5 p-5 sm:p-7"
+        key={currentTrial.trialNumber}
       >
-        {/* Trial Type Badge & Fluency Timer Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-[var(--brand-accent)]/12 px-3 py-1 text-[0.75rem] font-semibold text-[var(--brand-accent)]">
-              {currentTrial.kind === 'driving-speed'
-                ? 'Left / Right Speed Drill (<2.5s Fluency)'
-                : currentTrial.kind === 'driving-map'
-                  ? 'Regional Left-Driving Map Drill'
-                  : 'Multi-Clue Narrowing Drill'}
-            </span>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <h2
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-[1.375rem] font-black sm:text-[1.625rem]"
+            >
+              {prompt.promptTitle}
+            </h2>
             <MasteryBadge
-              state={
-                progress.skills[currentTrial.skillId]?.mastery ?? 'unseen'
-              }
+              state={feedback ? feedback.newMastery : progress.skills[currentTrial.skillId]?.mastery ?? 'unseen'}
               size="xs"
             />
           </div>
-
-          {currentTrial.kind === 'driving-speed' && !feedback && (
-            <div className="flex items-center gap-2 text-[0.75rem] font-mono text-[var(--text-secondary)]">
-              <span>{(elapsedMs / 1000).toFixed(1)}s / 2.5s ceiling</span>
-              <div className="h-2 w-24 overflow-hidden rounded-full bg-zinc-500/15">
-                <div
-                  className={`h-full transition-all duration-100 ${
-                    isOverFluencyThreshold ? 'bg-amber-500' : 'bg-emerald-500'
-                  }`}
-                  style={{ width: `${Math.round(fluencyRatio * 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Prompt Header */}
-        <div className="space-y-3">
-          <h2 className="text-[1.375rem] font-bold tracking-tight sm:text-[1.625rem]">
-            {prompt.promptTitle}
-          </h2>
-          <p className="text-[0.875rem] text-[var(--text-secondary)]">
-            {prompt.promptDescription}
-          </p>
+          <p className="text-[0.9375rem] text-[var(--text-secondary)]">{prompt.promptDescription}</p>
 
           {currentTrial.kind === 'driving-speed' && (
-            <div className="flex flex-wrap items-center gap-2 text-[0.8125rem] text-[var(--text-secondary)]">
-              <span className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-0.5 font-mono uppercase">
-                ISO: {targetCountry.id}
-              </span>
-              <span>
-                Region: {targetCountry.subregion} ({targetCountry.region})
-              </span>
-              <span>
-                Coverage:{' '}
-                <strong className="uppercase">
-                  {targetCountry.coverageTier}
-                </strong>
-              </span>
-              {targetCountry.isTerritory && (
-                <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-[0.75rem] font-medium text-indigo-700 dark:text-indigo-300">
-                  Small Territory / Microstate
-                </span>
-              )}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="chip font-mono uppercase">{targetCountry.id}</span>
+              <span className="chip">{targetCountry.subregion}</span>
+              <span className="chip capitalize">{targetCountry.coverageTier} coverage</span>
+              {targetCountry.isTerritory && <span className="chip">Territory</span>}
             </div>
           )}
 
-          {/* Multi-Clue Narrowing Clues & Sign Text Sample */}
           {currentTrial.kind === 'driving-narrowing' && (
-            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4 space-y-3">
+            <div className="space-y-3 pt-2">
               {prompt.narrowingClueSummary && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                    Combined Clues:
-                  </span>
-                  <span className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-1 text-[0.8125rem] font-semibold">
-                    {prompt.narrowingClueSummary}
-                  </span>
-                </div>
+                <p className="rounded-2xl bg-[var(--brand-soft)] px-4 py-2.5 text-[0.9375rem] font-bold">
+                  Clues: {prompt.narrowingClueSummary}
+                </p>
               )}
 
               {prompt.signSample && (
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-3.5 space-y-1.5">
-                  <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                    Observed Sign Text Sample
-                  </p>
-                  <p className="font-mono text-[1.25rem] font-bold tracking-wide">
+                <div className="rounded-2xl border-4 border-[var(--border-strong)] bg-[var(--surface-elevated)] p-5 text-center">
+                  <p className="font-mono text-[1.5rem] font-bold tracking-wide">
                     {renderSignSampleText(
                       prompt.signSample.text,
                       prompt.matchedTells,
@@ -1790,9 +1659,8 @@ export function DrivingSideSectionView({
                     )}
                   </p>
                   {(feedback || guidedBreakdown) && prompt.signLanguage && (
-                    <p className="text-[0.8125rem] text-[var(--text-secondary)]">
-                      Language: <strong>{prompt.signLanguage.name}</strong> — “
-                      {prompt.signSample.translation}”
+                    <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
+                      {prompt.signLanguage.name} — “{prompt.signSample.translation}”
                     </p>
                   )}
                 </div>
@@ -1801,24 +1669,33 @@ export function DrivingSideSectionView({
           )}
         </div>
 
-        {/* On-Demand Guided Breakdown */}
+        {/* Hint */}
+        {!feedback && !guidedBreakdown && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleRequestGuidedBreakdown}
+              aria-expanded={false}
+              className="btn btn-ghost btn-sm !text-[var(--warn)]"
+            >
+              <Lightbulb aria-hidden="true" className="h-4 w-4" />
+              Not sure? Show me
+              <kbd className="hidden text-[0.6875rem] opacity-70 sm:inline">?</kbd>
+            </button>
+          </div>
+        )}
+
         {guidedBreakdown && !feedback && (
           <aside
             aria-label="Guided Breakdown"
-            className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-2.5"
+            className="anim-rise space-y-2.5 rounded-2xl border-2 border-[var(--warn)] bg-[var(--warn-soft)] p-4"
           >
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[0.875rem] font-semibold text-amber-800 dark:text-amber-300">
-                Guided Breakdown · {guidedBreakdown.languageName} (
-                {guidedBreakdown.nativeName})
-              </p>
-              <span className="text-[0.75rem] text-amber-700 dark:text-amber-300">
-                Assisted Trial ({guidedBreakdown.queuedFollowUps} follow-ups
-                queued)
-              </span>
-            </div>
+            <p className="flex items-center gap-1.5 text-[0.875rem] font-extrabold">
+              <Lightbulb aria-hidden="true" className="h-4 w-4" />
+              Guided Breakdown · {guidedBreakdown.languageName} ({guidedBreakdown.nativeName})
+            </p>
             {guidedBreakdown.drivingNote && (
-              <p className="text-[0.8125rem]">{guidedBreakdown.drivingNote}</p>
+              <p className="text-[0.875rem]">{guidedBreakdown.drivingNote}</p>
             )}
             {guidedBreakdown.distractorEliminations.length > 0 && (
               <ul className="space-y-1 text-[0.8125rem]">
@@ -1829,45 +1706,38 @@ export function DrivingSideSectionView({
                 ))}
               </ul>
             )}
-            <p className="text-[0.8125rem] font-medium">
-              Candidate Countries:{' '}
-              {guidedBreakdown.candidateCountries.map((c) => c.name).join(', ')}
+            <p className="text-[0.8125rem] font-semibold">
+              Candidate Countries: {guidedBreakdown.candidateCountries.map((c) => c.name).join(', ')}
             </p>
           </aside>
         )}
 
-        {/* Speed Drill 2-Button Choice */}
-        {currentTrial.kind === 'driving-speed' && !feedback && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Left / right choice */}
+        {currentTrial.kind === 'driving-speed' && (
+          <div className="grid grid-cols-2 gap-3">
             {(['left', 'right'] as const).map((side, index) => (
-              <button
+              <AnswerTile
                 key={side}
-                type="button"
-                data-driving-choice={side}
-                onClick={() => {
-                  void handleSelectDrivingSide(side);
-                }}
-                className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-4 text-left transition hover:border-[var(--brand-accent)]"
-              >
-                <div>
-                  <span className="text-[1rem] font-semibold">
-                    {formatDrivingSideLabel(side)}
+                shortcutKey={index + 1}
+                className="!min-h-24 !flex-col !justify-center !text-center"
+                label={
+                  <span className="block text-[1.5rem] font-black">
+                    {side === 'left' ? '← Left' : 'Right →'}
                   </span>
-                  <p className="mt-1 text-[0.8125rem] text-[var(--text-secondary)]">
-                    {side === 'left'
-                      ? 'Traffic keeps left · Clockwise roundabouts · Signs face left shoulder'
-                      : 'Traffic keeps right · Counter-clockwise roundabouts · Signs face right shoulder'}
-                  </p>
-                </div>
-                <kbd className="rounded-md border border-[var(--border-subtle)] px-2 py-1 font-mono text-[0.75rem]">
-                  {index + 1}
-                </kbd>
-              </button>
+                }
+                sublabel={formatDrivingSideLabel(side)}
+                disabled={Boolean(feedback)}
+                state={getAnswerTileState(
+                  `side:${side}`,
+                  feedback ? { correctId: `side:${feedback.drivingSide}`, chosenId: feedback.chosenOptionId } : null
+                )}
+                onClick={() => void handleSelectDrivingSide(side)}
+              />
             ))}
           </div>
         )}
 
-        {/* Interactive World Map for Regional Map Drills & Multi-Clue Narrowing */}
+        {/* Map questions */}
         {(currentTrial.kind === 'driving-map' ||
           currentTrial.kind === 'driving-narrowing') && (
           <div className="space-y-4">
@@ -1882,94 +1752,78 @@ export function DrivingSideSectionView({
             />
 
             {!feedback && (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="text-[0.8125rem] text-[var(--text-secondary)]">
-                  Selected: <strong>{selectedMapCountryIds.length}</strong>{' '}
-                  {selectedMapCountryIds.length === 1 ? 'country' : 'countries'}{' '}
-                  (Expected: {expectedCountryIds.length} covered{' '}
-                  {expectedCountryIds.length === 1 ? 'country' : 'countries'})
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[var(--surface-elevated)] p-3.5">
+                <span className="text-[0.875rem] font-bold text-[var(--text-secondary)]">
+                  {selectedMapCountryIds.length} of {expectedCountryIds.length} selected
                 </span>
                 <div className="flex items-center gap-2">
                   {selectedMapCountryIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMapCountryIds([])}
-                      className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-[0.8125rem] font-medium"
-                    >
-                      Clear Selection
+                    <button type="button" onClick={() => setSelectedMapCountryIds([])} className="btn btn-ghost btn-sm">
+                      Clear
                     </button>
                   )}
                   <button
                     type="button"
-                    onClick={() => {
-                      void handleSubmitMapSelection();
-                    }}
-                    className="rounded-xl bg-[var(--brand-accent)] px-5 py-2.5 text-[0.875rem] font-semibold text-white shadow-xs hover:opacity-95"
+                    onClick={() => void handleSubmitMapSelection()}
+                    className="btn btn-primary"
                   >
-                    Submit Map Selection (Enter)
+                    Check answer
+                    <kbd className="hidden text-[0.75rem] opacity-80 sm:inline">Enter</kbd>
                   </button>
                 </div>
               </div>
             )}
           </div>
         )}
+      </section>
 
-        {/* Post-Trial Feedback Panel */}
-        {feedback && (
-          <div
-            aria-live="polite"
-            className={`rounded-xl border p-5 space-y-4 ${
-              feedback.correct
-                ? 'border-emerald-500/40 bg-emerald-500/10'
-                : 'border-rose-500/40 bg-rose-500/10'
-            }`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[1.125rem] font-bold">
-                    {feedback.correct
-                      ? feedback.isFluentSpeed
-                        ? '✓ Correct & Fluent (<2.5s)'
-                        : '✓ Correct'
-                      : '✗ Not Quite'}
-                  </span>
-                  <span className="font-mono text-[0.75rem] text-[var(--text-secondary)]">
-                    {(feedback.responseTimeMs / 1000).toFixed(2)}s
-                  </span>
-                  <MasteryBadge state={feedback.newMastery} size="xs" />
-                </div>
+      {/* Explanation after answering */}
+      {feedback && (
+        <details className="card group p-5 sm:p-6" open={!feedback.correct}>
+          <summary className="cursor-pointer list-none text-[1rem] font-extrabold [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-2">
+              <Lightbulb aria-hidden="true" className="h-5 w-5 text-[var(--warn)]" />
+              Learn more about {feedback.countryName}
+              <span className="text-[0.8125rem] font-semibold text-[var(--text-secondary)] group-open:hidden">
+                (tap to see)
+              </span>
+            </span>
+          </summary>
 
-                <p className="mt-1.5 text-[0.875rem]">
-                  <strong>
-                    {feedback.countryName} (
-                    {feedback.drivingSide.toUpperCase()}-Hand Traffic):
-                  </strong>{' '}
-                  {feedback.drivingNote}
-                </p>
+          <div className="mt-4 space-y-4">
+            <p className="text-[0.9375rem]">{feedback.drivingNote}</p>
+
+            {feedback.mapEvaluation && (
+              <div className="grid grid-cols-1 gap-3 text-[0.8125rem] sm:grid-cols-3">
+                {[
+                  { title: 'Correct', ids: feedback.mapEvaluation.correctCountryIds, color: 'var(--good)' },
+                  { title: 'Missed', ids: feedback.mapEvaluation.missedCountryIds, color: 'var(--warn)' },
+                  { title: 'Wrong taps', ids: feedback.mapEvaluation.incorrectCountryIds, color: 'var(--bad)' },
+                ].map(({ title, ids, color }) => (
+                  <div
+                    key={title}
+                    className="rounded-xl border-2 p-3"
+                    style={{ borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }}
+                  >
+                    <p className="font-extrabold">
+                      {title} ({ids.length})
+                    </p>
+                    <p className="mt-1 text-[var(--text-secondary)]">
+                      {ids.map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id).join(', ') || 'None'}
+                    </p>
+                  </div>
+                ))}
               </div>
+            )}
 
-              <button
-                type="button"
-                onClick={handleAdvanceNext}
-                className="rounded-xl bg-[var(--brand-accent)] px-5 py-2.5 text-[0.875rem] font-semibold text-white shadow-xs hover:opacity-95"
-              >
-                Next Trial (Enter) →
-              </button>
-            </div>
-
-            {/* Border Contrast Notes */}
             {feedback.borderContrastNotes.length > 0 && (
-              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-3.5 space-y-2">
-                <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                  Key Driving-Side &amp; Border Contrasts
-                </p>
+              <div className="space-y-2 rounded-2xl bg-[var(--surface-elevated)] p-4">
+                <p className="text-[0.875rem] font-extrabold">Watch the borders</p>
                 <ul className="space-y-1.5 text-[0.8125rem]">
                   {feedback.borderContrastNotes.map((item) => (
                     <li key={item.countryId}>
                       <strong>
-                        {item.countryName} ({item.drivingSide.toUpperCase()} ·{' '}
-                        {item.coverageTier} coverage):
+                        {item.countryName} ({item.drivingSide}, {item.coverageTier} coverage):
                       </strong>{' '}
                       {item.drivingNote}
                     </li>
@@ -1978,12 +1832,9 @@ export function DrivingSideSectionView({
               </div>
             )}
 
-            {/* Uncovered Country Trap Notes for Map / Narrowing Drills */}
             {feedback.uncoveredCountryNotes.length > 0 && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-1.5">
-                <p className="text-[0.75rem] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-300">
-                  Uncovered / Border Exception Notes
-                </p>
+              <div className="space-y-1.5 rounded-2xl bg-[var(--warn-soft)] p-4">
+                <p className="text-[0.875rem] font-extrabold">Good to know</p>
                 <ul className="space-y-1 text-[0.8125rem]">
                   {feedback.uncoveredCountryNotes.map((note) => (
                     <li key={note}>{note}</li>
@@ -1992,64 +1843,43 @@ export function DrivingSideSectionView({
               </div>
             )}
 
-            {/* Map Evaluation Summary for Map & Narrowing Drills */}
-            {feedback.mapEvaluation && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-[0.8125rem]">
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-3">
-                  <p className="font-semibold text-emerald-700 dark:text-emerald-300">
-                    ✓ Correct ({feedback.mapEvaluation.correctCountryIds.length})
-                  </p>
-                  <p className="mt-1 text-[var(--text-secondary)]">
-                    {feedback.mapEvaluation.correctCountryIds
-                      .map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id)
-                      .join(', ') || 'None'}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-3">
-                  <p className="font-semibold text-amber-700 dark:text-amber-300">
-                    ! Missed ({feedback.mapEvaluation.missedCountryIds.length})
-                  </p>
-                  <p className="mt-1 text-[var(--text-secondary)]">
-                    {feedback.mapEvaluation.missedCountryIds
-                      .map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id)
-                      .join(', ') || 'None'}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-3">
-                  <p className="font-semibold text-rose-700 dark:text-rose-300">
-                    ✗ Incorrect (
-                    {feedback.mapEvaluation.incorrectCountryIds.length})
-                  </p>
-                  <p className="mt-1 text-[var(--text-secondary)]">
-                    {feedback.mapEvaluation.incorrectCountryIds
-                      .map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id)
-                      .join(', ') || 'None'}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Post-Answer Map Reveal for Speed Drills */}
             {currentTrial.kind === 'driving-speed' && (
-              <div className="pt-2">
-                <WorldMapView
-                  selectedCountryIds={[]}
-                  onToggleCountry={() => {}}
-                  highlightedDrivingCountryIds={
-                    feedback.mapHighlightedCountryIds
-                  }
-                  activeRegionPreset={activeMapPreset}
-                  onRegionPresetChange={setActiveMapPreset}
-                  readOnly={true}
-                  ariaLabel={`Map highlight for ${targetCountry.name}`}
-                />
-              </div>
+              <WorldMapView
+                selectedCountryIds={[]}
+                onToggleCountry={() => {}}
+                highlightedDrivingCountryIds={feedback.mapHighlightedCountryIds}
+                activeRegionPreset={activeMapPreset}
+                onRegionPresetChange={setActiveMapPreset}
+                readOnly={true}
+                ariaLabel={`Map highlight for ${targetCountry.name}`}
+              />
             )}
-          </div>
-        )}
-      </section>
 
-      {/* Road Geometry Guide Accessible Below Active Drill */}
+            <button type="button" onClick={scrollToFieldGuide} className="btn btn-ghost btn-sm">
+              How to spot driving side without cars ↓
+            </button>
+          </div>
+        </details>
+      )}
+
+      {feedback && (
+        <FeedbackBanner
+          correct={feedback.correct}
+          seed={currentTrial.trialNumber}
+          answer={
+            feedback.mapEvaluation
+              ? feedback.correct
+                ? 'You found them all!'
+                : `${feedback.mapEvaluation.missedCountryIds.length} missed · ${feedback.mapEvaluation.incorrectCountryIds.length} wrong`
+              : `${feedback.countryName} drives on the ${feedback.drivingSide}`
+          }
+          detail={formatSpeed(feedback.responseTimeMs, feedback.fluencyTargetMs, feedback.assisted, feedback.correct)}
+          continueLabel={round.isComplete ? 'See results' : 'Continue'}
+          onContinue={handleContinue}
+        />
+      )}
+
+      {/* Road Geometry Guide below the round */}
       {renderRoadGeometryGuide()}
     </div>
   );

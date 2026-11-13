@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AtSign, Banknote, Lightbulb, Play } from 'lucide-react';
 import {
   resolveSkillDisplayInfo,
   type DomainsCurrenciesDrillMode,
@@ -7,12 +8,27 @@ import {
   type PracticeEngine,
   type PracticeTrial,
 } from '../engine/practiceEngine.ts';
+import { AnswerTile, type AnswerTileState } from './game/AnswerTile.tsx';
+import { FeedbackBanner, formatSpeed } from './game/FeedbackBanner.tsx';
+import { RoundHeader } from './game/RoundHeader.tsx';
+import { RoundResults } from './game/RoundResults.tsx';
+import { SectionPickerHeader } from './game/SectionPickerHeader.tsx';
+import { useRound } from './game/useRound.ts';
 import { MasteryBadge } from './MasteryBadge.tsx';
+import { SECTION_META } from './sectionMeta.ts';
 
-const DRILL_MODES: { id: DomainsCurrenciesDrillMode; label: string }[] = [
-  { id: 'mixed', label: 'Mixed practice' },
-  { id: 'domains', label: 'Country-code domains' },
-  { id: 'currencies', label: 'Currency signs' },
+const META = SECTION_META['domains-currencies'];
+
+const DRILL_MODES: Array<{
+  id: DomainsCurrenciesDrillMode;
+  label: string;
+  hint: string;
+  icon: typeof Play;
+  color: string;
+}> = [
+  { id: 'mixed', label: 'Mixed', hint: 'Domains and currencies together', icon: Play, color: META.color },
+  { id: 'domains', label: 'Domains', hint: '.hr, .ch, .za … which country?', icon: AtSign, color: 'var(--sec-languages)' },
+  { id: 'currencies', label: 'Currencies', hint: 'zł, Kč, ฿ … who uses it?', icon: Banknote, color: 'var(--good)' },
 ];
 
 export function DomainsCurrenciesSectionView({
@@ -24,6 +40,8 @@ export function DomainsCurrenciesSectionView({
   initialSkillId?: string;
   onBackToDashboard: () => void;
 }) {
+  const round = useRound();
+  const [mode, setMode] = useState<DomainsCurrenciesDrillMode>('mixed');
   const [trial, setTrial] = useState<PracticeTrial | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<DomainsCurrenciesFeedback | null>(null);
@@ -43,6 +61,20 @@ export function DomainsCurrenciesSectionView({
     window.scrollTo(0, 0);
   };
 
+  const startSession = (drillMode: DomainsCurrenciesDrillMode) => {
+    setMode(drillMode);
+    round.reset();
+    showTrial(engine.startDomainsCurrenciesSession(drillMode, initialSkillId));
+  };
+
+  const exitToPicker = useCallback(() => {
+    round.reset();
+    setTrial(null);
+    setFeedback(null);
+    setBreakdown(null);
+    setSelection([]);
+  }, [round.reset]);
+
   useEffect(() => {
     if (!trial || feedback) return;
     const interval = window.setInterval(() => {
@@ -55,25 +87,47 @@ export function DomainsCurrenciesSectionView({
     if (trial) heading.current?.focus({ preventScroll: true });
   }, [trial]);
 
-  const toggleCountry = useCallback((id: string) => {
-    setSelection((selected) => {
-      if (selected.includes(id)) return selected.filter((item) => item !== id);
-      return isDomain ? [id] : [...selected, id];
-    });
-  }, [isDomain]);
+  const submitIds = useCallback(
+    async (ids: string[]) => {
+      if (!trial || feedback || submitting.current || ids.length === 0) return;
+      const prompt = trial.domainsCurrenciesPrompt;
+      submitting.current = true;
+      setSaving(true);
+      try {
+        const result = await engine.submitDomainsCurrenciesAnswer(ids);
+        setFeedback(result);
+        round.record({
+          correct: result.correct,
+          fluent: result.correct && result.isFluentSpeed && !result.assisted,
+          responseTimeMs: result.responseTimeMs,
+          label: prompt?.marker ?? trial.sample.text,
+          sublabel: prompt?.countries.map((c) => c.name).join(', '),
+        });
+      } finally {
+        submitting.current = false;
+        setSaving(false);
+        setBreakdown(null);
+      }
+    },
+    [engine, feedback, round.record, trial]
+  );
 
-  const submit = useCallback(async () => {
-    if (feedback || submitting.current || selection.length === 0) return;
-    submitting.current = true;
-    setSaving(true);
-    try {
-      setFeedback(await engine.submitDomainsCurrenciesAnswer(selection));
-    } finally {
-      submitting.current = false;
-      setSaving(false);
-      setBreakdown(null);
-    }
-  }, [engine, feedback, selection]);
+  // Domains have exactly one answer, so a tap answers immediately;
+  // currencies can match several countries, so taps toggle until "Check".
+  const chooseOption = useCallback(
+    (id: string) => {
+      if (feedback || submitting.current) return;
+      if (isDomain) {
+        setSelection([id]);
+        void submitIds([id]);
+        return;
+      }
+      setSelection((selected) =>
+        selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]
+      );
+    },
+    [feedback, isDomain, submitIds]
+  );
 
   const openBreakdown = useCallback(() => {
     if (!feedback && !submitting.current) setBreakdown(engine.requestGuidedBreakdown());
@@ -85,175 +139,246 @@ export function DomainsCurrenciesSectionView({
     heading.current?.focus({ preventScroll: true });
   }, [engine]);
 
+  const handleContinue = useCallback(() => {
+    if (round.isComplete) {
+      round.finish();
+      return;
+    }
+    showTrial(engine.nextTrial());
+  }, [engine, round.finish, round.isComplete]);
+
+  const handlePlayAgain = useCallback(() => {
+    round.reset();
+    showTrial(engine.nextTrial());
+  }, [engine, round.reset]);
+
   useEffect(() => {
-    if (!trial) return;
+    if (!trial || round.showResults) return;
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target;
       if (target instanceof HTMLElement && target !== document.body && !target.closest('[data-sign-drill]')) return;
+      if (target instanceof HTMLElement && target.closest('details')) return;
       if (event.ctrlKey || event.altKey || event.metaKey || event.repeat || submitting.current) return;
       const focusedButton = target instanceof HTMLButtonElement;
       const option = trial.options.find(({ shortcutKey }) => String(shortcutKey) === event.key);
       if (event.key === 'Escape') {
         event.preventDefault();
         if (breakdown) dismissBreakdown();
-        else onBackToDashboard();
+        else exitToPicker();
       } else if (!feedback && (event.key === '?' || (event.key === ' ' && !focusedButton))) {
         event.preventDefault();
         openBreakdown();
       } else if (!feedback && option) {
         event.preventDefault();
-        toggleCountry(option.id);
+        chooseOption(option.id);
       } else if (event.key === 'Enter' && !focusedButton) {
         event.preventDefault();
-        if (feedback) showTrial(engine.nextTrial());
-        else void submit();
+        if (feedback) handleContinue();
+        else void submitIds(selection);
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [trial, feedback, breakdown, engine, dismissBreakdown, openBreakdown, onBackToDashboard, submit, toggleCountry]);
+  }, [trial, feedback, breakdown, selection, round.showResults, dismissBreakdown, openBreakdown, exitToPicker, submitIds, chooseOption, handleContinue]);
 
   const prompt = trial?.domainsCurrenciesPrompt;
   if (!trial || !prompt) {
     return (
-      <section className="apple-card mx-auto max-w-3xl space-y-5 p-6 sm:p-8">
-        <h1 className="text-3xl font-bold tracking-tight">Domains &amp; Currencies</h1>
-        <p className="text-[var(--text-secondary)]">
-          Read country-code domains on signs and pick out the currency marks on price tags.
-          For shared currencies, select every matching country among the choices.
-        </p>
+      <div className="space-y-8">
+        <SectionPickerHeader
+          sectionId="domains-currencies"
+          title="Domains & Currencies"
+          description="Read country-code domains on signs and spot currency marks on price tags. Shared currencies? Pick every matching country."
+          onBack={onBackToDashboard}
+        />
         {initialSkillId && (
-          <p className="font-medium">Practice focus · {resolveSkillDisplayInfo(initialSkillId).label}</p>
+          <p className="chip !text-[0.875rem]">
+            Focus: {resolveSkillDisplayInfo(initialSkillId).label}
+          </p>
         )}
-        <div className="flex flex-wrap gap-3">
-          {DRILL_MODES.map(({ id, label }) => (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {DRILL_MODES.map(({ id, label, hint, icon: Icon, color }) => (
             <button
               type="button"
               key={id}
-              className="rounded-xl border border-[var(--border-subtle)] px-4 py-2 font-semibold hover:border-[var(--brand-accent)]"
-              onClick={() => showTrial(engine.startDomainsCurrenciesSession(id, initialSkillId))}
+              onClick={() => startSession(id)}
+              className="card flex items-center gap-4 p-5 text-left transition hover:-translate-y-0.5 md:flex-col md:items-start"
             >
-              {label}
+              <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: color }}>
+                <Icon aria-hidden="true" className="h-6 w-6" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[1.125rem] font-black">{label}</span>
+                <span className="block text-[0.875rem] text-[var(--text-secondary)]">{hint}</span>
+              </span>
             </button>
           ))}
         </div>
-      </section>
+      </div>
+    );
+  }
+
+  if (round.showResults) {
+    return (
+      <RoundResults
+        sectionLabel="Domains & Currencies"
+        summary={round.summary}
+        onPlayAgain={handlePlayAgain}
+        onBack={exitToPicker}
+        backLabel="Change mode"
+      />
     );
   }
 
   const markerStart = trial.sample.text.indexOf(prompt.marker);
   const reveal = (feedback || breakdown) && markerStart >= 0;
-  const responseTimeMs = feedback?.responseTimeMs ?? elapsedMs;
   const expected = feedback?.expectedCountryIds ?? [];
   const matches = new Set(prompt.countries.map(({ id }) => id));
+  const modeLabel = DRILL_MODES.find((m) => m.id === mode)?.label ?? 'Mixed';
+
+  const optionState = (id: string): AnswerTileState => {
+    const selected = selection.includes(id);
+    if (!feedback) return selected ? 'selected' : 'idle';
+    if (expected.includes(id)) return 'correct';
+    if (selected) return 'wrong';
+    return 'dim';
+  };
 
   return (
-    <section data-sign-drill className="apple-card mx-auto max-w-3xl space-y-5 p-5 sm:p-8">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--text-secondary)]">
-        <p>{isDomain ? 'Country-code domains' : 'Currency signs'} · Trial {trial.trialNumber}{trial.isFollowUp ? ' · Guided follow-up' : ''}</p>
-        <button type="button" onClick={onBackToDashboard} className="rounded-lg border border-[var(--border-subtle)] px-3 py-1">
-          Exit drill
-        </button>
-      </div>
-      <div>
-        <p className="mb-1 text-xs text-[var(--text-secondary)]">Fluency target · {(trial.fluencyThresholdMs / 1000).toFixed(1)}s</p>
-        <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-zinc-500/15">
-          <div
-            className="h-full rounded-full bg-[var(--brand-accent)] transition-[width] duration-100"
-            style={{ width: `${Math.min(100, responseTimeMs / trial.fluencyThresholdMs * 100)}%` }}
-          />
+    <div data-sign-drill className="mx-auto max-w-3xl space-y-5">
+      <RoundHeader
+        title={`Domains & Currencies · ${modeLabel}`}
+        subtitle={`${isDomain ? 'Country-code domain' : 'Currency sign'}${trial.isFollowUp ? ' · follow-up' : ''}`}
+        answered={round.answered}
+        roundLength={round.roundLength}
+        streak={round.streak}
+        elapsedMs={feedback?.responseTimeMs ?? elapsedMs}
+        fluencyMs={trial.fluencyThresholdMs}
+        onExit={exitToPicker}
+        showingFeedback={Boolean(feedback)}
+      />
+
+      <section className="card space-y-5 p-5 sm:p-7" key={trial.trialNumber}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h2 ref={heading} tabIndex={-1} className="text-[1.375rem] font-black sm:text-[1.5rem]">
+            {isDomain ? 'Which country is this domain from?' : 'Which countries use this currency?'}
+          </h2>
+          {feedback && <MasteryBadge state={feedback.newMastery} size="xs" />}
         </div>
-      </div>
-      <h1 ref={heading} tabIndex={-1} className="text-xl font-bold sm:text-2xl">
-        {isDomain ? 'Which country does this domain point to?' : 'Which listed countries match this currency clue?'}
-      </h1>
-      <p dir="auto" className="break-words rounded-xl bg-[var(--surface-canvas)] p-5 text-center font-mono text-2xl sm:text-3xl">
-        {reveal ? (
-          <>
-            {trial.sample.text.slice(0, markerStart)}
-            <mark className="rounded bg-indigo-500/20 text-inherit underline decoration-indigo-500">
-              {prompt.marker}
-            </mark>
-            {trial.sample.text.slice(markerStart + prompt.marker.length)}
-          </>
-        ) : trial.sample.text}
-      </p>
-      {!feedback && !breakdown && (
-        <button type="button" onClick={openBreakdown} className="text-sm font-semibold text-[var(--brand-accent)]">
-          Show me what to look for
-        </button>
-      )}
-      {breakdown && (
-        <aside role="complementary" aria-label="Guided Breakdown" className="space-y-2 rounded-xl border border-indigo-500/35 bg-indigo-500/8 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <h2 className="font-bold">Guided Breakdown</h2>
-            <button type="button" onClick={dismissBreakdown} className="text-sm font-semibold">Close breakdown</button>
-          </div>
-          <p>{breakdown.gestaltNote}</p>
-          <p>
-            <strong>Matching choices</strong> · {trial.options.filter(({ id }) => matches.has(id)).map(({ label }) => label).join(', ')}
-          </p>
-          <ul className="list-disc space-y-1 pl-5 text-sm">
-            {breakdown.distractorEliminations.map(({ optionId, reason }) => <li key={optionId}>{reason}</li>)}
-          </ul>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Assisted trial · {breakdown.queuedFollowUps} follow-ups queued
-          </p>
-        </aside>
-      )}
-      {!isDomain && !feedback && <p className="text-sm text-[var(--text-secondary)]">Select every match among the choices.</p>}
-      <div role="group" aria-label="Country choices" className="grid gap-2 sm:grid-cols-2">
-        {trial.options.map(({ id, label, shortcutKey }) => {
-          const selected = selection.includes(id);
-          const correctChoice = expected.includes(id);
-          return (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={selected}
-              disabled={Boolean(feedback) || saving}
-              onClick={() => toggleCountry(id)}
-              className={`flex items-center justify-between gap-2 rounded-xl border p-3 text-left font-medium ${
-                correctChoice ? 'border-emerald-500 bg-emerald-500/10' :
-                feedback && selected ? 'border-rose-500 bg-rose-500/10' :
-                selected ? 'border-[var(--brand-accent)] bg-sky-500/10' :
-                'border-[var(--border-subtle)] hover:border-[var(--brand-accent)]'
-              }`}
-            >
-              <span>{label}{correctChoice ? (selected ? ' ✓' : ' · Missed') : feedback && selected ? ' ✕' : ''}</span>
-              <kbd className="text-xs text-[var(--text-secondary)]">{shortcutKey}</kbd>
-            </button>
-          );
-        })}
-      </div>
-      {feedback ? (
-        <>
-          <div role="status" className="space-y-2 border-t border-[var(--border-subtle)] pt-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <strong>{feedback.correct ? (feedback.assisted ? 'Assisted match' : 'Correct') : 'Review the matches'}</strong>
-              <span className="text-sm text-[var(--text-secondary)]">{(feedback.responseTimeMs / 1000).toFixed(2)}s</span>
-              <MasteryBadge state={feedback.newMastery} />
-            </div>
-            <p>
-              <strong>{isDomain ? 'Country' : 'Candidate Countries'}</strong> · {prompt.countries.map(({ name }) => name).join(', ')}
-            </p>
-            {isDomain && <p className="text-sm capitalize">Coverage Tier · {prompt.countries[0].coverageTier}</p>}
-            {feedback.saveFailed && <p className="text-sm">The attempt is in memory. Saving progress failed.</p>}
-          </div>
-          <button type="button" onClick={() => showTrial(engine.nextTrial())} className="rounded-xl bg-[var(--brand-accent)] px-4 py-2 font-semibold text-white">
-            Next trial
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          disabled={selection.length === 0 || saving}
-          onClick={() => void submit()}
-          className="rounded-xl bg-[var(--brand-accent)] px-4 py-2 font-semibold text-white disabled:opacity-50"
+
+        <p
+          dir="auto"
+          className="break-words rounded-2xl border-4 border-[var(--border-strong)] bg-[var(--surface-elevated)] p-6 text-center font-mono text-[1.75rem] font-bold sm:text-[2.25rem]"
         >
-          {saving ? 'Checking…' : 'Check answer'}
-        </button>
+          {reveal ? (
+            <>
+              {trial.sample.text.slice(0, markerStart)}
+              <mark className="rounded-md bg-[var(--brand-soft)] px-1 text-inherit underline decoration-[var(--brand-accent)] decoration-4 underline-offset-4">
+                {prompt.marker}
+              </mark>
+              {trial.sample.text.slice(markerStart + prompt.marker.length)}
+            </>
+          ) : (
+            trial.sample.text
+          )}
+        </p>
+
+        {!feedback && !breakdown && (
+          <div className="flex justify-center">
+            <button type="button" onClick={openBreakdown} className="btn btn-ghost btn-sm !text-[var(--warn)]">
+              <Lightbulb aria-hidden="true" className="h-4 w-4" />
+              Show me what to look for
+              <kbd className="hidden text-[0.6875rem] opacity-70 sm:inline">?</kbd>
+            </button>
+          </div>
+        )}
+
+        {breakdown && (
+          <aside
+            role="complementary"
+            aria-label="Guided Breakdown"
+            className="anim-rise space-y-2 rounded-2xl border-2 border-[var(--warn)] bg-[var(--warn-soft)] p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 font-black">
+                <Lightbulb aria-hidden="true" className="h-4 w-4" /> Guided Breakdown
+              </h3>
+              <button type="button" onClick={dismissBreakdown} className="btn btn-ghost btn-sm">
+                Close breakdown
+              </button>
+            </div>
+            <p>{breakdown.gestaltNote}</p>
+            <p>
+              <strong>Matching choices:</strong>{' '}
+              {trial.options.filter(({ id }) => matches.has(id)).map(({ label }) => label).join(', ')}
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-[0.875rem]">
+              {breakdown.distractorEliminations.map(({ optionId, reason }) => (
+                <li key={optionId}>{reason}</li>
+              ))}
+            </ul>
+          </aside>
+        )}
+
+        {!isDomain && !feedback && (
+          <p className="text-center text-[0.875rem] font-bold text-[var(--text-secondary)]">
+            Select every match, then check.
+          </p>
+        )}
+
+        <div role="group" aria-label="Country choices" className="grid gap-3 sm:grid-cols-2">
+          {trial.options.map(({ id, label, shortcutKey }) => {
+            const state = optionState(id);
+            const missed = feedback && state === 'correct' && !selection.includes(id);
+            return (
+              <AnswerTile
+                key={id}
+                label={label}
+                sublabel={missed ? 'Missed' : undefined}
+                shortcutKey={shortcutKey}
+                state={state}
+                ariaPressed={isDomain ? undefined : selection.includes(id)}
+                disabled={Boolean(feedback) || saving}
+                onClick={() => chooseOption(id)}
+              />
+            );
+          })}
+        </div>
+
+        {!feedback && !isDomain && (
+          <button
+            type="button"
+            disabled={selection.length === 0 || saving}
+            onClick={() => void submitIds(selection)}
+            className="btn btn-primary btn-lg w-full"
+          >
+            {saving ? 'Checking…' : 'Check answer'}
+            <kbd className="hidden text-[0.75rem] opacity-80 sm:inline">Enter</kbd>
+          </button>
+        )}
+      </section>
+
+      {feedback && (
+        <FeedbackBanner
+          correct={feedback.correct}
+          seed={trial.trialNumber}
+          answer={
+            <>
+              <span className="font-mono">{prompt.marker}</span> →{' '}
+              {prompt.countries.map(({ name }) => name).join(', ')}
+            </>
+          }
+          detail={
+            <>
+              {formatSpeed(feedback.responseTimeMs, trial.fluencyThresholdMs, feedback.assisted, feedback.correct)}
+              {isDomain && ` · ${prompt.countries[0].coverageTier} coverage`}
+              {feedback.saveFailed && ' · progress could not be saved'}
+            </>
+          }
+          continueLabel={round.isComplete ? 'See results' : 'Continue'}
+          onContinue={handleContinue}
+        />
       )}
-    </section>
+    </div>
   );
 }

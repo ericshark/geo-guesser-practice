@@ -243,11 +243,11 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
 
   return (
     <div
-      className="rounded-xl border border-slate-200 dark:border-[#242830] bg-[#FFFFFF] dark:bg-[#14161A] overflow-hidden shadow-xs"
+      className="rounded-2xl border-2 border-[var(--border-subtle)] bg-[var(--surface-card)] overflow-hidden"
       data-testid="world-map-view"
     >
       {/* Top toolbar: Regional Zoom Presets */}
-      <div className="px-3.5 py-2.5 border-b border-slate-200 dark:border-[#242830] bg-[#F5F5F7]/70 dark:bg-[#0B0C0E]/60 flex flex-wrap items-center justify-between gap-2">
+      <div className="px-3.5 py-2.5 border-b border-slate-200 dark:border-[var(--border-subtle)] bg-[#F5F5F7]/70 dark:bg-[#0B0C0E]/60 flex flex-wrap items-center justify-between gap-2">
         <div
           className="flex flex-wrap items-center gap-1"
           role="group"
@@ -267,8 +267,8 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
                 data-region-preset={preset.id}
                 className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
                   isActive
-                    ? 'bg-[#0071E3] dark:bg-[#0A84FF] text-white shadow-2xs'
-                    : 'bg-white dark:bg-[#14161A] text-slate-700 dark:text-[#E5E7EB] border border-slate-200/80 dark:border-[#242830] hover:border-[#0071E3] dark:hover:border-[#0A84FF]'
+                    ? 'bg-[var(--brand-accent)] dark:bg-[var(--brand-accent)] text-white shadow-2xs'
+                    : 'bg-white dark:bg-[var(--surface-card)] text-slate-700 dark:text-[#E5E7EB] border border-slate-200/80 dark:border-[var(--border-subtle)] hover:border-[var(--brand-accent)] dark:hover:border-[var(--brand-accent)]'
                 }`}
               >
                 {preset.label}
@@ -347,7 +347,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
           ) : (
             <span className="inline-flex items-center gap-1">
               <span
-                className="w-2.5 h-2.5 rounded-xs bg-[#0071E3] dark:bg-[#0A84FF] inline-block"
+                className="w-2.5 h-2.5 rounded-xs bg-[var(--brand-accent)] dark:bg-[var(--brand-accent)] inline-block"
                 aria-hidden="true"
               />
               Selected ({selectedCountryIds.length})
@@ -399,7 +399,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               let strokeClass = 'stroke-[#9AAEAA] dark:stroke-[#647777]';
 
               if (status === 'selected') {
-                fillClass = 'fill-[#0071E3] dark:fill-[#0A84FF]';
+                fillClass = 'fill-[var(--brand-accent)] dark:fill-[var(--brand-accent)]';
                 strokeClass = 'stroke-white dark:stroke-slate-900';
               } else if (status === 'correct' || status === 'tier-official') {
                 fillClass = 'fill-emerald-500 dark:fill-emerald-500';
@@ -535,7 +535,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
               let pillText = '#0F172A';
 
               if (status === 'selected') {
-                pillFill = '#0071E3';
+                pillFill = '#5b45e8';
                 pillStroke = '#FFFFFF';
                 pillText = '#FFFFFF';
               } else if (status === 'correct' || status === 'tier-official') {
@@ -620,7 +620,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
 
         {/* Floating Hover / Active Country Inspector Badge */}
         <div
-          className="px-3.5 py-1.5 border-t border-slate-200/80 dark:border-[#242830] bg-white/95 dark:bg-[#14161A]/95 flex flex-wrap items-center justify-between gap-2 text-xs"
+          className="px-3.5 py-1.5 border-t border-slate-200/80 dark:border-[var(--border-subtle)] bg-white/95 dark:bg-[var(--surface-card)]/95 flex flex-wrap items-center justify-between gap-2 text-xs"
           aria-live="polite"
         >
           {hoveredCountry ? (
@@ -661,7 +661,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
 
       {/* Small GeoGuessr Territories & Microstates Accessible Pill Bar */}
       <div
-        className="px-3.5 py-2.5 border-t border-slate-200 dark:border-[#242830] bg-[#F5F5F7]/50 dark:bg-[#0B0C0E]/40"
+        className="px-3.5 py-2.5 border-t border-slate-200 dark:border-[var(--border-subtle)] bg-[#F5F5F7]/50 dark:bg-[#0B0C0E]/40"
         data-testid="territory-pill-bar"
       >
         <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -683,10 +683,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             const badgeIcon = getStatusIcon(status);
 
             let pillStyle =
-              'bg-white dark:bg-[#14161A] text-slate-700 dark:text-[#E5E7EB] border-slate-300 dark:border-[#242830] hover:border-[#0071E3] dark:hover:border-[#0A84FF]';
+              'bg-white dark:bg-[var(--surface-card)] text-slate-700 dark:text-[#E5E7EB] border-slate-300 dark:border-[var(--border-subtle)] hover:border-[var(--brand-accent)] dark:hover:border-[var(--brand-accent)]';
             if (status === 'selected') {
               pillStyle =
-                'bg-[#0071E3] dark:bg-[#0A84FF] text-white border-[#0071E3] dark:border-[#0A84FF]';
+                'bg-[var(--brand-accent)] dark:bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] dark:border-[var(--brand-accent)]';
             } else if (status === 'correct' || status === 'tier-official') {
               pillStyle =
                 'bg-emerald-600 text-white border-emerald-700 dark:bg-emerald-600 dark:border-emerald-400';
@@ -741,7 +741,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
       </div>
 
       {/* Accessible Country Quick-Filter & Keyboard Selection Tray */}
-      <div className="px-3.5 py-2.5 border-t border-slate-200 dark:border-[#242830] bg-white dark:bg-[#14161A]">
+      <div className="px-3.5 py-2.5 border-t border-slate-200 dark:border-[var(--border-subtle)] bg-white dark:bg-[var(--surface-card)]">
         <search className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <label
             htmlFor="world-map-country-filter"
@@ -755,7 +755,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Filter countries by name or code..."
-            className="text-xs px-2.5 py-1 rounded-md border border-slate-200 dark:border-[#242830] bg-[#F5F5F7] dark:bg-[#0B0C0E] text-slate-900 dark:text-[#F3F4F6] focus:outline-2 focus:outline-[#0071E3] w-56"
+            className="text-xs px-2.5 py-1 rounded-md border border-slate-200 dark:border-[var(--border-subtle)] bg-[#F5F5F7] dark:bg-[#0B0C0E] text-slate-900 dark:text-[#F3F4F6] focus:outline-2 focus:outline-[var(--brand-accent)] w-56"
           />
         </search>
         <div
@@ -769,10 +769,10 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             const badgeIcon = getStatusIcon(status);
 
             let chipClass =
-              'bg-[#F5F5F7] dark:bg-[#0B0C0E] text-slate-700 dark:text-[#E5E7EB] border-slate-200 dark:border-[#242830] hover:border-[#0071E3] dark:hover:border-[#0A84FF]';
+              'bg-[#F5F5F7] dark:bg-[#0B0C0E] text-slate-700 dark:text-[#E5E7EB] border-slate-200 dark:border-[var(--border-subtle)] hover:border-[var(--brand-accent)] dark:hover:border-[var(--brand-accent)]';
             if (status === 'selected') {
               chipClass =
-                'bg-[#0071E3] dark:bg-[#0A84FF] text-white border-[#0071E3] dark:border-[#0A84FF]';
+                'bg-[var(--brand-accent)] dark:bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] dark:border-[var(--brand-accent)]';
             } else if (status === 'correct' || status === 'tier-official') {
               chipClass = 'bg-emerald-600 text-white border-emerald-700';
             } else if (status === 'missed' || status === 'tier-limited') {

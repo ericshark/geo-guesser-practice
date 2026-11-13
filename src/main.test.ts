@@ -85,9 +85,9 @@ describe('UI & Highlighting Verification', () => {
       })
     );
 
-    expect(html).toContain('Choose a Confusable Language Group');
-    expect(html).toContain('Smart Practice (Weakest Spots)');
-    expect(html).toContain('All-Groups Mixed');
+    expect(html).toContain('Choose a Language Group');
+    expect(html).toContain('Smart Practice');
+    expect(html).toContain('All groups mixed');
     expect(html).toContain('Southeast Asian');
     expect(html).toContain('Baltic &amp; Finnic');
   });
@@ -114,8 +114,8 @@ describe('UI & Highlighting Verification', () => {
       })
     );
 
-    expect(breakdownHtml).toContain('Guided Breakdown · Assisted Exposure');
-    expect(breakdownHtml).toContain('Why Each Distractor Option Is Ruled Out');
+    expect(breakdownHtml).toContain('Guided Breakdown · counts as a hint');
+    expect(breakdownHtml).toContain('the others');
 
     // Now trigger a Stage 2 Contrast Card by confusing two skills twice
     const t1 = engine.getCurrentTrial()!;
@@ -146,7 +146,7 @@ describe('UI & Highlighting Verification', () => {
       })
     );
 
-    expect(contrastHtml).toContain('Stage 2 Triggered Contrast Card');
+    expect(contrastHtml).toContain('Mix-up check · Contrast Card');
     expect(contrastHtml).toContain('Left Sample');
     expect(contrastHtml).toContain('Right Sample');
 
@@ -154,9 +154,9 @@ describe('UI & Highlighting Verification', () => {
     const dashboardHtml = renderToStaticMarkup(
       React.createElement(App, { customStore: store })
     );
-    expect(dashboardHtml).toContain('Smart Practice (Weakest Spots)');
-    expect(dashboardHtml).toContain('Weakest Learning Skills');
-    expect(dashboardHtml).toContain('Top Confusion Pairs');
+    expect(dashboardHtml).toContain('Play a round');
+    expect(dashboardHtml).toContain('Weakest skills');
+    expect(dashboardHtml).toContain('Mix-ups');
     expect(dashboardHtml).toContain('mistaken for');
   });
 
@@ -257,7 +257,7 @@ describe('UI & Highlighting Verification', () => {
       })
     );
 
-    expect(bridgeFeedbackHtml).toContain('Stage 3 Map Selection Breakdown');
+    expect(bridgeFeedbackHtml).toContain('Your map answer');
     expect(bridgeFeedbackHtml).toContain('Correct Selections');
     expect(bridgeFeedbackHtml).toContain('Missed Candidate Countries');
     expect(bridgeFeedbackHtml).toContain('Incorrect Clicks');
@@ -277,10 +277,10 @@ describe('UI & Highlighting Verification', () => {
         onBackToDashboard: () => {},
       })
     );
-    expect(pickerHtml).toContain('Coverage Practice');
-    expect(pickerHtml).toContain('Choose a Regional Focus');
+    expect(pickerHtml).toContain('Learn which countries have Street View');
+    expect(pickerHtml).toContain('Pick a region');
     expect(pickerHtml).toContain('Common Trap Countries');
-    expect(pickerHtml).toContain('Interactive Street View Coverage Tier Map');
+    expect(pickerHtml).toContain('Coverage world map');
     expect(pickerHtml).toContain('Lagos'); // Inspected default country 'ng' (Nigeria) regional note
 
     // 2. Start a Coverage cluster session in Africa, request Guided Breakdown, and render
@@ -300,7 +300,7 @@ describe('UI & Highlighting Verification', () => {
     );
     expect(activeClusterHtml).toContain('Neighboring Cluster Coverage Trap');
     expect(activeClusterHtml).toContain(
-      'Guided Breakdown · Assisted Scaffolding'
+      'Guided Breakdown · counts as a hint'
     );
 
     // 3. Submit answer and verify exact Coverage Tier on the map and Regional Street View Coverage Notes for Limited countries
@@ -336,7 +336,7 @@ describe('UI & Highlighting Verification', () => {
       })
     );
 
-    expect(pickerHtml).toContain('Driving Side Section');
+    expect(pickerHtml).toContain('Know instantly whether a country drives on the left or right');
     expect(pickerHtml).toContain('Tricky Left/Right Borders &amp; Exceptions');
     expect(pickerHtml).toContain('Southern &amp; Eastern Africa');
     expect(pickerHtml).toContain('Americas &amp; Caribbean');
@@ -355,7 +355,7 @@ describe('UI & Highlighting Verification', () => {
       '5. Camera-Car Lane Offset, Hood/Snorkel Clues &amp; Sun Shadow Geometry'
     );
     expect(pickerHtml).toContain(
-      'Interactive World Driving Side Reference Map'
+      'Driving side world map'
     );
 
     // 2. Render active Regional Map Drill in Europe
