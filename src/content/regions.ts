@@ -28,6 +28,22 @@ interface CountrySet {
  */
 const SETS: CountrySet[] = [
   {
+    key: 'usa',
+    countryId: 'us',
+    noun: 'state',
+    lessonTitle: 'United States',
+    regions: [
+      { id: 'nv', title: 'Nevada', value: 3, facts: ['Bollards that are a thin stick with a vertical white reflector outlined in black'] },
+      { id: 'ut', title: 'Utah', value: 3, facts: ['Bollards with a white square reflector on top of a black rectangular reflector'] },
+      { id: 'wi', title: 'Wisconsin', value: 3, facts: ['Plain white bollards with black reflectors', 'Green ATV route signs'] },
+      { id: 'ks', title: 'Kansas', value: 2, facts: ['White reflectors on the signposts of rural stop signs'] },
+      { id: 'az', title: 'Arizona', value: 2, facts: ['Kilometre distances on the exit and distance signs of Interstate 19, from Tucson to the Mexican border'] },
+      { id: 'or', title: 'Oregon', value: 2, facts: ['Speed signs that say only "Speed" instead of "Speed Limit"'], confidence: 'medium' },
+      { id: 'ia', title: 'Iowa', value: 1, facts: ['Ordinary roads paved in concrete far more often than in other states'], confidence: 'medium' },
+      { id: 'mn', title: 'Minnesota', value: 2, facts: ['Yellow signs with vertical black triangles before bridges at major river crossings'], confidence: 'medium' },
+    ],
+  },
+  {
     key: 'australia',
     countryId: 'au',
     noun: 'state or territory',
@@ -136,9 +152,9 @@ export function buildRegions(): { topic: Topic; clues: Clue[] } {
       id: TOPIC_ID,
       order: 12,
       title: 'Big-country regions',
-      tagline: 'Place yourself inside Australia, Canada, Brazil and Russia.',
+      tagline: 'Place yourself inside the USA, Australia, Canada, Brazil and Russia.',
       why: 'In very large countries, clicking the middle loses most of the points, and a good guess in the right region can win a round. These clues each point to one state, province or region.',
-      bestRegions: 'Australia, Canada, Brazil, Russia',
+      bestRegions: 'USA, Australia, Canada, Brazil, Russia',
       lessons,
     },
   };
