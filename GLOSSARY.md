@@ -5,7 +5,7 @@ A personal, local-only learning app for recognising GeoGuessr clues. A curriculu
 ## Curriculum
 
 **Topic**:
-A kind of clue taught as a unit (Foundations, Scripts & languages, Text clues, and the roadmap: road lines, signs, bollards, plates, poles, car & camera, landscape, architecture, big-country regions). Topics have an order that follows GeoGuessr value.
+A kind of clue taught as a unit (Foundations, Scripts & languages, road lines, road signs, bollards, licence plates, utility poles, vehicles, landscape, architecture, big-country regions, text clues). Topics have an order that follows GeoGuessr value.
 _Avoid_: Section, category, module
 
 **Lesson**:

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, Check } from 'lucide-react';
-import { CLUE_MAP, TOPICS, UPCOMING_TOPICS } from '../../content/index.ts';
+import { CLUE_MAP, TOPICS } from '../../content/index.ts';
 import {
   nextAction,
   overallProgress,
@@ -24,11 +24,6 @@ export function LearnPage() {
   const confusions = topConfusions(progress, 3);
   const weak = weakestTopic(progress, TOPICS);
   const firstRun = progress.totalAnswers === 0;
-
-  const path = [
-    ...TOPICS.map((t) => ({ order: t.order, topic: t, upcoming: null })),
-    ...UPCOMING_TOPICS.map((u) => ({ order: u.order, topic: null, upcoming: u })),
-  ].sort((a, b) => a.order - b.order);
 
   return (
     <div className="stack">
@@ -131,20 +126,7 @@ export function LearnPage() {
       <section className="stack-sm" aria-labelledby="path-title">
         <h2 id="path-title">Curriculum</h2>
         <div className="card card-flush">
-          {path.map((entry) => {
-            if (entry.upcoming) {
-              return (
-                <div className="path-item upcoming" key={entry.upcoming.id}>
-                  <span className="path-num">{entry.upcoming.order}</span>
-                  <div className="stack-sm" style={{ flex: 1 }}>
-                    <strong>{entry.upcoming.title}</strong>
-                    <span className="muted small">{entry.upcoming.tagline}</span>
-                  </div>
-                  <span className="chip">Coming soon</span>
-                </div>
-              );
-            }
-            const t = entry.topic!;
+          {TOPICS.map((t) => {
             const p = topicProgress(t, progress);
             const finished = p.lessonsDone === t.lessons.length;
             return (

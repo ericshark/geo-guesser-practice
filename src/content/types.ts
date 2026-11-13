@@ -139,11 +139,3 @@ export interface Topic {
   bestRegions: string;
   lessons: Lesson[];
 }
-
-/** Topics on the roadmap that are not built yet; shown as upcoming. */
-export interface UpcomingTopic {
-  id: string;
-  order: number;
-  title: string;
-  tagline: string;
-}

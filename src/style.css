@@ -486,9 +486,6 @@ button.chip:hover {
   background: var(--accent);
   color: var(--accent-ink);
 }
-.path-item.upcoming {
-  opacity: 0.55;
-}
 .lesson-row {
   display: flex;
   align-items: center;

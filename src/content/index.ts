@@ -10,7 +10,7 @@ import { buildPlates } from './plates.ts';
 import { buildRoadSigns } from './roadSigns.ts';
 import { buildRoadLines } from './roadLines.ts';
 import { buildTextClues } from './textClues.ts';
-import type { Clue, Lesson, Topic, UpcomingTopic } from './types.ts';
+import type { Clue, Lesson, Topic } from './types.ts';
 
 export * from './types.ts';
 
@@ -28,11 +28,6 @@ export const LESSONS: Lesson[] = TOPICS.flatMap((t) => t.lessons);
 export const LESSON_MAP: Record<string, Lesson> = Object.fromEntries(LESSONS.map((l) => [l.id, l]));
 
 export const TOPIC_MAP: Record<string, Topic> = Object.fromEntries(TOPICS.map((t) => [t.id, t]));
-
-/** Roadmap topics (see the curriculum plan); shown on the path as "coming soon". */
-export const UPCOMING_TOPICS: UpcomingTopic[] = [
-  { id: 'car-camera', order: 14, title: 'Google car & camera', tagline: 'Car and camera meta that identifies a country.' },
-];
 
 export function lessonsForTopic(topicId: string): Lesson[] {
   return TOPIC_MAP[topicId]?.lessons ?? [];
