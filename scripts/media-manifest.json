@@ -1,18 +1,10 @@
 [
-  {
-    "id": "landscape-iceland",
-    "file": "Arnarstapi Snæfellsjökull.jpg"
-  },
-  {
-    "id": "landscape-australia",
-    "file": "00 1986 Dust roads (corrugated tracks) in the outback of Australia.jpg"
-  },
-  {
-    "id": "landscape-kenya",
-    "file": "Acacia trees on the savannah (47940414406).jpg"
-  },
-  {
-    "id": "landscape-thailand",
-    "file": "Rice terrace at Ban Mae Klang Luang.jpg"
-  }
+  { "id": "landscape-iceland", "file": "Arnarstapi Snæfellsjökull.jpg" },
+  { "id": "landscape-australia", "file": "00 1986 Dust roads (corrugated tracks) in the outback of Australia.jpg" },
+  { "id": "landscape-kenya", "file": "Acacia trees on the savannah (47940414406).jpg" },
+  { "id": "landscape-thailand", "file": "Rice terrace at Ban Mae Klang Luang.jpg" },
+  { "id": "vehicle-hong-kong", "file": "(HKG-Hong Kong) Urban Taxi Toyota Comfort VV9455 2024-05-30.jpg" },
+  { "id": "vehicle-philippines", "file": "1988 Jeepney (47410757451).jpg" },
+  { "id": "vehicle-bangladesh", "file": "A rickshaw puller in Dhaka.jpg" },
+  { "id": "vehicle-peru", "file": "Auto rickshaw in Huanchaco.jpg" }
 ]

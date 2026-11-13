@@ -26,5 +26,33 @@
     "licence": "CC BY-SA 4.0",
     "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0",
     "source": "https://commons.wikimedia.org/wiki/File:Rice_terrace_at_Ban_Mae_Klang_Luang.jpg"
+  },
+  "vehicle-hong-kong": {
+    "title": "(HKG-Hong Kong) Urban Taxi Toyota Comfort VV9455 2024-05-30.jpg",
+    "author": "S5A-0043",
+    "licence": "CC BY 2.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+    "source": "https://commons.wikimedia.org/wiki/File:(HKG-Hong_Kong)_Urban_Taxi_Toyota_Comfort_VV9455_2024-05-30.jpg"
+  },
+  "vehicle-philippines": {
+    "title": "1988 Jeepney (47410757451).jpg",
+    "author": "Sicnag",
+    "licence": "CC BY 2.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+    "source": "https://commons.wikimedia.org/wiki/File:1988_Jeepney_(47410757451).jpg"
+  },
+  "vehicle-bangladesh": {
+    "title": "A rickshaw puller in Dhaka.jpg",
+    "author": "Nurunnaby Chowdhury (Hasive)",
+    "licence": "CC BY-SA 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:A_rickshaw_puller_in_Dhaka.jpg"
+  },
+  "vehicle-peru": {
+    "title": "Auto rickshaw in Huanchaco.jpg",
+    "author": "Bernard Gagnon",
+    "licence": "CC BY-SA 3.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Auto_rickshaw_in_Huanchaco.jpg"
   }
 }
