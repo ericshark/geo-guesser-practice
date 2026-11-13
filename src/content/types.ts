@@ -40,7 +40,13 @@ export interface SignVisual {
   accent: 'red' | 'black' | 'white';
 }
 
-export type Visual = RoadVisual | PlateVisual | BollardVisual | SignVisual;
+/** A bundled photo (`public/media/<id>.jpg`); author and licence live in mediaCredits.json. */
+export interface PhotoVisual {
+  kind: 'photo';
+  id: string;
+}
+
+export type Visual = RoadVisual | PlateVisual | BollardVisual | SignVisual | PhotoVisual;
 
 /** One thing the learner is shown in a question (a sign, a web address, a price...). */
 export interface Stimulus {

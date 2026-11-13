@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CLUES, CLUE_MAP, LESSONS, LESSON_MAP, TOPICS } from './index.ts';
 import { PLAYABLE_COUNTRY_MAP } from '../data/index.ts';
@@ -85,6 +87,20 @@ describe('curriculum content', () => {
     for (const clue of languages) {
       const share = clue.stimuli.filter((s) => /school/i.test(s.translation ?? '')).length / clue.stimuli.length;
       expect(share, clue.id).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('credits every bundled photo with an author and an open licence', async () => {
+    const credits = JSON.parse(await fs.readFile(path.resolve(process.cwd(), 'src/content/mediaCredits.json'), 'utf-8'));
+    for (const clue of CLUES) {
+      for (const s of clue.stimuli) {
+        if (s.visual?.kind !== 'photo') continue;
+        const credit = credits[s.visual.id];
+        expect(credit, `${s.visual.id} has no credit`).toBeDefined();
+        expect(credit.author.length).toBeGreaterThan(1);
+        expect(credit.licence).toMatch(/^(CC BY(-SA)? \d\.\d|CC0|Public domain)/i);
+        await expect(fs.access(path.resolve(process.cwd(), `public/media/${s.visual.id}.jpg`))).resolves.toBeUndefined();
+      }
     }
   });
 

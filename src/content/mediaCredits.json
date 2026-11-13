@@ -1,0 +1,30 @@
+{
+  "landscape-iceland": {
+    "title": "Arnarstapi Snæfellsjökull.jpg",
+    "author": "Linguaddict",
+    "licence": "CC BY-SA 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Arnarstapi_Sn%C3%A6fellsj%C3%B6kull.jpg"
+  },
+  "landscape-australia": {
+    "title": "00 1986 Dust roads (corrugated tracks) in the outback of Australia.jpg",
+    "author": "W. Bulach",
+    "licence": "CC BY-SA 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:00_1986_Dust_roads_(corrugated_tracks)_in_the_outback_of_Australia.jpg"
+  },
+  "landscape-kenya": {
+    "title": "Acacia trees on the savannah (47940414406).jpg",
+    "author": "Kandukuru Nagarjun from Bangalore, India",
+    "licence": "CC BY 2.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Acacia_trees_on_the_savannah_(47940414406).jpg"
+  },
+  "landscape-thailand": {
+    "title": "Rice terrace at Ban Mae Klang Luang.jpg",
+    "author": "Voranat Rajchatan",
+    "licence": "CC BY-SA 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Rice_terrace_at_Ban_Mae_Klang_Luang.jpg"
+  }
+}

@@ -51,6 +51,7 @@ export function ReferencePage() {
         })}
         {countries.length === 0 && <p className="muted" style={{ padding: 20 }}>No country matches “{query}”.</p>}
       </div>
+      <p className="muted small"><Link to="/credits" style={{ textDecoration: 'underline' }}>Photo credits</Link></p>
     </div>
   );
 }

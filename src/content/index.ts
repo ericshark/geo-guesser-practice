@@ -1,6 +1,7 @@
 import { buildFoundations } from './foundations.ts';
 import { buildLanguages } from './languages.ts';
 import { buildBollards } from './bollards.ts';
+import { buildLandscape } from './landscape.ts';
 import { buildPlates } from './plates.ts';
 import { buildRoadSigns } from './roadSigns.ts';
 import { buildRoadLines } from './roadLines.ts';
@@ -9,7 +10,7 @@ import type { Clue, Lesson, Topic, UpcomingTopic } from './types.ts';
 
 export * from './types.ts';
 
-const built = [buildFoundations(), buildLanguages(), buildRoadLines(), buildRoadSigns(), buildBollards(), buildPlates(), buildTextClues()];
+const built = [buildFoundations(), buildLanguages(), buildRoadLines(), buildRoadSigns(), buildBollards(), buildPlates(), buildLandscape(), buildTextClues()];
 
 /** Topics that are playable today, in curriculum order. */
 export const TOPICS: Topic[] = built.map((b) => b.topic).sort((a, b) => a.order - b.order);
@@ -28,7 +29,6 @@ export const TOPIC_MAP: Record<string, Topic> = Object.fromEntries(TOPICS.map((t
 export const UPCOMING_TOPICS: UpcomingTopic[] = [
   { id: 'poles', order: 7, title: 'Utility poles', tagline: 'Pole and crossbar styles by region.' },
   { id: 'car-camera', order: 8, title: 'Google car & camera', tagline: 'Car and camera meta that identifies a country.' },
-  { id: 'landscape', order: 9, title: 'Landscape & vegetation', tagline: 'Biomes, soil and signature trees.' },
   { id: 'architecture', order: 10, title: 'Architecture', tagline: 'Roofs, fences and building styles.' },
   { id: 'regions', order: 12, title: 'Big-country regions', tagline: 'Place yourself inside the USA, Canada, Brazil and others.' },
 ];

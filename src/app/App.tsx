@@ -4,6 +4,7 @@ import { AppProvider } from './AppContext.tsx';
 import { SessionLayout, Shell } from './Shell.tsx';
 import { LearnPage } from './pages/LearnPage.tsx';
 import { PracticePage } from './pages/PracticePage.tsx';
+import { CreditsPage } from './pages/CreditsPage.tsx';
 import { CountryPage, ReferencePage } from './pages/ReferencePage.tsx';
 import { SessionPage } from './pages/SessionPage.tsx';
 import { TopicPage } from './pages/TopicPage.tsx';
@@ -19,6 +20,7 @@ export function App({ store }: { store?: ProgressStore }) {
           <Route path="practice" element={<PracticePage />} />
           <Route path="reference" element={<ReferencePage />} />
           <Route path="reference/:countryId" element={<CountryPage />} />
+          <Route path="credits" element={<CreditsPage />} />
           <Route path="*" element={<LearnPage />} />
         </Route>
         <Route element={<SessionLayout />}>

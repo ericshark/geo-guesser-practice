@@ -7,6 +7,16 @@ export function VisualSvg({ visual, label }: { visual: Visual; label: string }) 
   if (visual.kind === 'road') return <RoadSvg visual={visual} label={label} />;
   if (visual.kind === 'plate') return <PlateSvg visual={visual} label={label} />;
   if (visual.kind === 'sign') return <SignSvg visual={visual} label={label} />;
+  if (visual.kind === 'photo') {
+    return (
+      <img
+        src={`/media/${visual.id}.jpg`}
+        alt={label}
+        loading="lazy"
+        style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 12, border: '1px solid var(--line)' }}
+      />
+    );
+  }
   return <BollardSvg visual={visual} label={label} />;
 }
 
