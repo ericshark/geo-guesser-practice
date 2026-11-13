@@ -1,6 +1,29 @@
-import type { RoadVisual } from '../content/types.ts';
+import type { PlateVisual, RoadVisual, Visual } from '../content/types.ts';
 
-const COLOURS = { white: '#f5f5f2', yellow: '#e8b923' };
+const COLOURS = { white: '#f5f5f2', yellow: '#e8b923', red: '#c0392b' };
+
+/** Draws whichever schematic a stimulus carries. */
+export function VisualSvg({ visual, label }: { visual: Visual; label: string }) {
+  return visual.kind === 'road' ? <RoadSvg visual={visual} label={label} /> : <PlateSvg visual={visual} label={label} />;
+}
+
+/** Front and rear plate side by side. Colours and strip only; the lettering is deliberately blank. */
+export function PlateSvg({ visual, label }: { visual: PlateVisual; label: string }) {
+  const plate = (x: number, colour: PlateVisual['front'], caption: string) => (
+    <g>
+      <rect x={x} y={34} width={130} height={40} rx={5} fill={COLOURS[colour]} stroke="#222" strokeWidth={2} />
+      {visual.strip === 'blue-left' && <rect x={x + 2} y={36} width={14} height={36} rx={3} fill="#1b4fa8" />}
+      <rect x={x + 30} y={48} width={84} height={12} rx={2} fill={colour === 'red' ? '#f3d9d4' : '#222'} opacity={0.18} />
+      <text x={x + 65} y={96} textAnchor="middle" fontSize={11} fill="currentColor">{caption}</text>
+    </g>
+  );
+  return (
+    <svg viewBox="0 0 320 110" role="img" aria-label={label} style={{ width: '100%', maxWidth: 360, height: 'auto', display: 'block', margin: '0 auto' }}>
+      {plate(16, visual.front, 'Front')}
+      {plate(174, visual.rear, 'Rear')}
+    </svg>
+  );
+}
 
 /** Schematic top-down road: asphalt with centre and edge lines. Not to scale, not photographic. */
 export function RoadSvg({ visual, label }: { visual: RoadVisual; label: string }) {

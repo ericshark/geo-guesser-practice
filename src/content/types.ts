@@ -9,10 +9,20 @@ export interface RoadVisual {
   zigzag?: boolean;
 }
 
+/** A front and rear licence plate pair (colours and the side strip; no lettering). */
+export interface PlateVisual {
+  kind: 'plate';
+  front: 'white' | 'yellow' | 'red';
+  rear: 'white' | 'yellow' | 'red';
+  strip: 'blue-left' | 'none';
+}
+
+export type Visual = RoadVisual | PlateVisual;
+
 /** One thing the learner is shown in a question (a sign, a web address, a price...). */
 export interface Stimulus {
   /** When set, the stimulus is drawn instead of shown as text (`text` is the accessible label). */
-  visual?: RoadVisual;
+  visual?: Visual;
   text: string;
   translation?: string;
   /** Rendering hint: signs get a bordered plate, `mono` is for web addresses and prices. */
