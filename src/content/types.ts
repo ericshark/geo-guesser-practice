@@ -46,7 +46,21 @@ export interface PhotoVisual {
   id: string;
 }
 
-export type Visual = RoadVisual | PlateVisual | BollardVisual | SignVisual | PhotoVisual;
+/** A roadside utility pole, reduced to the feature that identifies it. */
+export interface PoleVisual {
+  kind: 'pole';
+  style:
+    | 'holey-to-ground'
+    | 'holey-above-ground'
+    | 'yellow-black-stripes'
+    | 'white-base'
+    | 'ladder'
+    | 'red-white-stripes'
+    | 'crucifix'
+    | 'lattice';
+}
+
+export type Visual = RoadVisual | PlateVisual | BollardVisual | SignVisual | PhotoVisual | PoleVisual;
 
 /** One thing the learner is shown in a question (a sign, a web address, a price...). */
 export interface Stimulus {

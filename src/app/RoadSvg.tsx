@@ -1,4 +1,4 @@
-import type { BollardVisual, PlateVisual, RoadVisual, SignVisual, Visual } from '../content/types.ts';
+import type { BollardVisual, PlateVisual, PoleVisual, RoadVisual, SignVisual, Visual } from '../content/types.ts';
 
 const COLOURS = { white: '#f5f5f2', yellow: '#e8b923', red: '#c0392b' };
 
@@ -7,6 +7,7 @@ export function VisualSvg({ visual, label }: { visual: Visual; label: string }) 
   if (visual.kind === 'road') return <RoadSvg visual={visual} label={label} />;
   if (visual.kind === 'plate') return <PlateSvg visual={visual} label={label} />;
   if (visual.kind === 'sign') return <SignSvg visual={visual} label={label} />;
+  if (visual.kind === 'pole') return <PoleSvg visual={visual} label={label} />;
   if (visual.kind === 'photo') {
     return (
       <img
@@ -20,7 +21,77 @@ export function VisualSvg({ visual, label }: { visual: Visual; label: string }) 
   return <BollardSvg visual={visual} label={label} />;
 }
 
-const SIGN_FILL = { white: '#f7f7f4', yellow: '#f2c200', green: '#1f6b3a' };
+/** A pole with its identifying detail exaggerated. Schematic, not to scale. */
+export function PoleSvg({ visual, label }: { visual: PoleVisual; label: string }) {
+  const s = visual.style;
+  const x = 66;
+  const w = 28;
+  const top = 24;
+  const base = 240;
+  const concrete = '#b4b4ac';
+  const wood = '#7a5a3a';
+  const dark = '#333';
+  const isWood = s === 'crucifix';
+
+  return (
+    <svg viewBox="0 0 160 260" role="img" aria-label={label} style={{ width: '100%', maxWidth: 200, height: 'auto', display: 'block', margin: '0 auto' }}>
+      <defs>
+        <clipPath id="pole-body">
+          <rect x={x} y={top} width={w} height={base - top} />
+        </clipPath>
+      </defs>
+      <rect x={0} y={base} width={160} height={20} fill="#8a8f7a" />
+
+      {s === 'lattice' ? (
+        <>
+          <polygon points={`80,${top} 104,${base} 56,${base}`} fill="none" stroke={dark} strokeWidth={3} />
+          {Array.from({ length: 7 }, (_, i) => {
+            const y = top + 30 + i * 28;
+            const half = 4 + ((y - top) / (base - top)) * 20;
+            return <line key={i} x1={80 - half} y1={y} x2={80 + half} y2={y} stroke={dark} strokeWidth={2} />;
+          })}
+        </>
+      ) : (
+        <>
+          <rect x={x} y={top} width={w} height={base - top} fill={isWood ? wood : concrete} stroke={dark} strokeWidth={2} />
+          <g clipPath="url(#pole-body)">
+            {s === 'holey-to-ground' &&
+              Array.from({ length: 5 }, (_, i) => <rect key={i} x={x + 9} y={base - 24 - i * 34} width={10} height={24} rx={3} fill={dark} />)}
+            {s === 'holey-above-ground' &&
+              Array.from({ length: 4 }, (_, i) => <rect key={i} x={x + 9} y={base - 70 - i * 34} width={10} height={24} rx={3} fill={dark} />)}
+            {s === 'yellow-black-stripes' &&
+              Array.from({ length: 9 }, (_, i) => (
+                <polygon key={i} points={`${x},${base - 30 - i * 22} ${x + w},${base - 52 - i * 22} ${x + w},${base - 36 - i * 22} ${x},${base - 14 - i * 22}`} fill={i % 2 === 0 ? '#f2c200' : '#161616'} />
+              ))}
+            {s === 'white-base' && <rect x={x} y={base - 80} width={w} height={80} fill="#fafafa" />}
+            {s === 'red-white-stripes' &&
+              Array.from({ length: 6 }, (_, i) => <rect key={i} x={x} y={base - 120 + i * 20} width={w} height={20} fill={i % 2 === 0 ? '#c8102e' : '#fafafa'} />)}
+            {s === 'ladder' && (
+              <>
+                <rect x={x + 4} y={top + 60} width={w - 8} height={base - top - 70} fill={dark} opacity={0.55} />
+                {Array.from({ length: 12 }, (_, i) => (
+                  <rect key={i} x={x + 2} y={top + 70 + i * 14} width={w - 4} height={4} fill={concrete} />
+                ))}
+              </>
+            )}
+          </g>
+        </>
+      )}
+
+      {/* Cross arm and wires. */}
+      {s === 'crucifix' ? (
+        <>
+          <rect x={22} y={top + 22} width={116} height={9} fill={wood} stroke={dark} strokeWidth={2} />
+          <rect x={46} y={top + 52} width={68} height={7} fill={wood} stroke={dark} strokeWidth={2} />
+        </>
+      ) : (
+        <rect x={42} y={top + 6} width={76} height={6} fill={dark} />
+      )}
+    </svg>
+  );
+}
+
+const SIGN_FILL ={ white: '#f7f7f4', yellow: '#f2c200', green: '#1f6b3a' };
 const SIGN_ACCENT = { red: '#c8102e', black: '#161616', white: '#ffffff' };
 
 /** Sign shape and colours only; pictograms and words are left out on purpose. */
