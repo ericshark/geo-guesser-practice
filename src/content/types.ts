@@ -31,7 +31,16 @@ export interface BollardVisual {
     | 'red-rect-in-black-diagonal';
 }
 
-export type Visual = RoadVisual | PlateVisual | BollardVisual;
+/** A road sign reduced to its shape and colours (no pictograms or real text). */
+export interface SignVisual {
+  kind: 'sign';
+  shape: 'triangle' | 'diamond' | 'square-with-triangle' | 'rectangle';
+  fill: 'white' | 'yellow' | 'green';
+  /** Colour of the border (warning signs) or of the placeholder lettering (direction signs). */
+  accent: 'red' | 'black' | 'white';
+}
+
+export type Visual = RoadVisual | PlateVisual | BollardVisual | SignVisual;
 
 /** One thing the learner is shown in a question (a sign, a web address, a price...). */
 export interface Stimulus {

@@ -1,4 +1,4 @@
-import type { BollardVisual, PlateVisual, RoadVisual, Visual } from '../content/types.ts';
+import type { BollardVisual, PlateVisual, RoadVisual, SignVisual, Visual } from '../content/types.ts';
 
 const COLOURS = { white: '#f5f5f2', yellow: '#e8b923', red: '#c0392b' };
 
@@ -6,7 +6,42 @@ const COLOURS = { white: '#f5f5f2', yellow: '#e8b923', red: '#c0392b' };
 export function VisualSvg({ visual, label }: { visual: Visual; label: string }) {
   if (visual.kind === 'road') return <RoadSvg visual={visual} label={label} />;
   if (visual.kind === 'plate') return <PlateSvg visual={visual} label={label} />;
+  if (visual.kind === 'sign') return <SignSvg visual={visual} label={label} />;
   return <BollardSvg visual={visual} label={label} />;
+}
+
+const SIGN_FILL = { white: '#f7f7f4', yellow: '#f2c200', green: '#1f6b3a' };
+const SIGN_ACCENT = { red: '#c8102e', black: '#161616', white: '#ffffff' };
+
+/** Sign shape and colours only; pictograms and words are left out on purpose. */
+export function SignSvg({ visual, label }: { visual: SignVisual; label: string }) {
+  const fill = SIGN_FILL[visual.fill];
+  const accent = SIGN_ACCENT[visual.accent];
+  return (
+    <svg viewBox="0 0 220 170" role="img" aria-label={label} style={{ width: '100%', maxWidth: 240, height: 'auto', display: 'block', margin: '0 auto' }}>
+      <rect x={104} y={110} width={12} height={60} fill="#777" />
+      {visual.shape === 'triangle' && (
+        <polygon points="110,12 200,128 20,128" fill={fill} stroke={accent} strokeWidth={14} strokeLinejoin="round" />
+      )}
+      {visual.shape === 'diamond' && (
+        <polygon points="110,6 204,62 110,118 16,62" fill={fill} stroke={accent} strokeWidth={5} strokeLinejoin="round" transform="translate(0 12)" />
+      )}
+      {visual.shape === 'square-with-triangle' && (
+        <>
+          <rect x={30} y={10} width={160} height={120} rx={6} fill={SIGN_FILL.white} stroke="#161616" strokeWidth={3} />
+          <polygon points="110,28 168,114 52,114" fill="none" stroke={SIGN_ACCENT.red} strokeWidth={9} strokeLinejoin="round" />
+        </>
+      )}
+      {visual.shape === 'rectangle' && (
+        <>
+          <rect x={14} y={22} width={192} height={100} rx={6} fill={fill} stroke="#161616" strokeWidth={3} />
+          <rect x={36} y={44} width={120} height={10} rx={3} fill={accent} />
+          <rect x={36} y={66} width={150} height={10} rx={3} fill={accent} />
+          <rect x={36} y={88} width={90} height={10} rx={3} fill={accent} />
+        </>
+      )}
+    </svg>
+  );
 }
 
 /** A single roadside post in front of a plain background. Marking details are exaggerated for clarity. */
