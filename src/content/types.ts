@@ -17,7 +17,21 @@ export interface PlateVisual {
   strip: 'blue-left' | 'none';
 }
 
-export type Visual = RoadVisual | PlateVisual;
+/** A roadside bollard, seen from the front. Schematic: the marking is what matters. */
+export interface BollardVisual {
+  kind: 'bollard';
+  body: 'white' | 'yellow' | 'red-white-bands';
+  marking:
+    | 'none'
+    | 'red-diagonal-stripe'
+    | 'black-cap-dark-reflector'
+    | 'black-lower-orange-stripes'
+    | 'red-rect-centre'
+    | 'red-rect-off-centre'
+    | 'red-rect-in-black-diagonal';
+}
+
+export type Visual = RoadVisual | PlateVisual | BollardVisual;
 
 /** One thing the learner is shown in a question (a sign, a web address, a price...). */
 export interface Stimulus {
