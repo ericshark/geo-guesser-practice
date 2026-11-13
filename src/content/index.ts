@@ -1,11 +1,12 @@
 import { buildFoundations } from './foundations.ts';
 import { buildLanguages } from './languages.ts';
+import { buildRoadLines } from './roadLines.ts';
 import { buildTextClues } from './textClues.ts';
 import type { Clue, Lesson, Topic, UpcomingTopic } from './types.ts';
 
 export * from './types.ts';
 
-const built = [buildFoundations(), buildLanguages(), buildTextClues()];
+const built = [buildFoundations(), buildLanguages(), buildRoadLines(), buildTextClues()];
 
 /** Topics that are playable today, in curriculum order. */
 export const TOPICS: Topic[] = built.map((b) => b.topic).sort((a, b) => a.order - b.order);
@@ -22,7 +23,6 @@ export const TOPIC_MAP: Record<string, Topic> = Object.fromEntries(TOPICS.map((t
 
 /** Roadmap topics (see the curriculum plan); shown on the path as "coming soon". */
 export const UPCOMING_TOPICS: UpcomingTopic[] = [
-  { id: 'road-lines', order: 3, title: 'Road lines', tagline: 'Centre and edge line colours and patterns.' },
   { id: 'road-signs', order: 4, title: 'Road signs', tagline: 'Shapes, colours and symbols that differ by country.' },
   { id: 'bollards', order: 5, title: 'Bollards', tagline: 'Roadside posts, the strongest clue in Europe.' },
   { id: 'plates', order: 6, title: 'Licence plates', tagline: 'Colours, strips and proportions.' },

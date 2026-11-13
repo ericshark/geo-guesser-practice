@@ -22,7 +22,9 @@ export interface Question {
 const OPTION_COUNT = 4;
 
 function clueOption(clue: Clue): Option {
-  return { id: clue.id, label: clue.title, sublabel: clue.subtitle, isFoil: false };
+  // For visual clues the subtitle describes the picture, so showing it would give the answer away.
+  const hidesSubtitle = clue.stimuli.some((s) => s.visual);
+  return { id: clue.id, label: clue.title, sublabel: hidesSubtitle ? undefined : clue.subtitle, isFoil: false };
 }
 
 /**

@@ -1,7 +1,18 @@
 import type { TellSpec, WorldRegion } from '../data/types.ts';
 
+/** A schematic road, drawn as SVG (lines are what matters, not realism). */
+export interface RoadVisual {
+  kind: 'road';
+  centre: 'white-dashed' | 'yellow-double' | 'yellow-dashed' | 'none';
+  edge: 'white' | 'yellow' | 'white-long-dash' | 'none';
+  /** Urban zigzag lines along the kerb. */
+  zigzag?: boolean;
+}
+
 /** One thing the learner is shown in a question (a sign, a web address, a price...). */
 export interface Stimulus {
+  /** When set, the stimulus is drawn instead of shown as text (`text` is the accessible label). */
+  visual?: RoadVisual;
   text: string;
   translation?: string;
   /** Rendering hint: signs get a bordered plate, `mono` is for web addresses and prices. */

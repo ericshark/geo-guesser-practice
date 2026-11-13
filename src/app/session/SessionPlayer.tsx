@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Lightbulb, X } from 'lucide-react';
-import { CLUE_MAP, type Clue } from '../../content/index.ts';
+import { CLUE_MAP, type Clue, type RoadVisual } from '../../content/index.ts';
+import { RoadSvg } from '../RoadSvg.tsx';
 import { PLAYABLE_COUNTRY_MAP } from '../../data/index.ts';
 import { nextAction } from '../../engine/curriculum.ts';
 import { explain, highlightStimulus } from '../../engine/explain.ts';
@@ -201,6 +202,13 @@ function StudyCard({
           )}
         </div>
 
+        {clue.stimuli[0]?.visual && (
+          <div className="stack-sm">
+            <h3>Example</h3>
+            <RoadSvg visual={clue.stimuli[0].visual} label={clue.stimuli[0].text} />
+            <p className="muted small" style={{ textAlign: 'center' }}>Schematic illustration</p>
+          </div>
+        )}
         {clue.stimuli.length > 0 && clue.stimuli[0].kind !== 'plain' && (
           <div className="stack-sm">
             <h3>Example{samples.length > 1 ? 's' : ''}</h3>
@@ -260,7 +268,9 @@ function Stimulus({
   mono,
   tellIds,
   highlight,
+  visual,
 }: {
+  visual?: RoadVisual;
   clue: Clue;
   text: string;
   translation?: string;
@@ -269,6 +279,7 @@ function Stimulus({
   tellIds?: string[];
   highlight?: boolean;
 }) {
+  if (visual) return <RoadSvg visual={visual} label={text} />;
   const segments = highlight ? highlightStimulus(clue, text, tellIds) : [{ text }];
   return (
     <div className={`stimulus${kind === 'sign' ? ' sign' : ''}${mono ? ' mono' : ''}${kind === 'plain' && !mono ? ' plain' : ''}`}>
@@ -312,8 +323,9 @@ function QuestionView({
       <p className="stem">{question.stem}</p>
 
       {/* Questions with no stimulus ("which of these drives left?") ask in words only. */}
-      {(s.kind !== 'plain' || s.mono) && (
+      {(s.kind !== 'plain' || s.mono || s.visual) && (
         <Stimulus
+          visual={s.visual}
           clue={clue}
           text={s.text}
           translation={answered ? s.translation : undefined}
