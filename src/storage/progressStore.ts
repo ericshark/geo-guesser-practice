@@ -1,11 +1,9 @@
-import { getAllSkillIdsForSection } from '../data/index.ts';
-import type { MasteryState, SectionId } from '../data/types.ts';
+import { reviewClue } from '../engine/scheduler.ts';
 import { readProgressFromIndexedDb, writeProgressToIndexedDb } from './indexedDbMirror.ts';
 import {
   createInitialProgressData,
+  type AnswerResult,
   type ProgressData,
-  type SectionMasteryBreakdown,
-  type SkillRecord,
   validateProgressData,
 } from './schema.ts';
 
@@ -28,6 +26,7 @@ export function createInMemoryProgressAdapter(
   };
 }
 
+/** Disk (dev server) is the source of truth; IndexedDB is the offline fallback and mirror. */
 export function createBrowserProgressAdapter(
   endpoint = '/api/progress'
 ): ProgressStorageAdapter {
@@ -35,16 +34,12 @@ export function createBrowserProgressAdapter(
     async load() {
       const idbData = await readProgressFromIndexedDb();
       try {
-        const res = await fetch(endpoint, {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-        });
+        const res = await fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json' } });
         if (res.ok) {
-          const json = await res.json();
-          const parsed = validateProgressData(json);
+          const parsed = validateProgressData(await res.json());
           if (parsed.ok) {
-            // If IndexedDB has more trials than a fresh disk file, keep the richer snapshot and sync it
-            if (idbData && idbData.totalTrials > parsed.data.totalTrials) {
+            // Keep whichever snapshot has more answers (e.g. a fresh disk file next to a used mirror).
+            if (idbData && idbData.totalAnswers > parsed.data.totalAnswers) {
               await this.save(idbData);
               return idbData;
             }
@@ -53,7 +48,7 @@ export function createBrowserProgressAdapter(
           }
         }
       } catch {
-        // Fallback to IndexedDB when running static/offline
+        // Static or offline: fall back to IndexedDB.
       }
       return idbData;
     },
@@ -66,24 +61,35 @@ export function createBrowserProgressAdapter(
           body: JSON.stringify(data),
         });
       } catch {
-        // Offline / static preview fallback already saved to IndexedDB
+        // Already saved to IndexedDB.
       }
     },
   };
 }
 
-export interface RecordAttemptInput {
-  section: SectionId;
-  skillId: string;
-  chosenSkillId?: string;
-  sampleId?: string;
-  correct: boolean;
+export interface RecordAnswerInput {
+  clueId: string;
+  /** The option the learner picked: a clue id (for mix-up tracking) or a foil id. */
+  chosenId?: string;
+  result: AnswerResult;
   responseTimeMs: number;
-  assisted: boolean;
-  mastery: MasteryState;
-  trialIndex: number;
   now?: Date;
 }
+
+/** Local calendar date, e.g. "2026-11-12". Streaks follow the learner's day, not UTC. */
+export function localDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function dayNumber(key: string): number {
+  const [y, m, d] = key.split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86_400_000);
+}
+
+const ACTIVITY_DAYS_KEPT = 90;
 
 export class ProgressStore {
   private state: ProgressData;
@@ -105,6 +111,7 @@ export class ProgressStore {
         return this.getState();
       }
     }
+    // A missing file, or a version 1 file from the previous app (backed up on first save).
     this.state = createInitialProgressData();
     await this.adapter.save(this.state);
     this.emit();
@@ -123,118 +130,69 @@ export class ProgressStore {
   }
 
   private emit(): void {
-    for (const listener of this.listeners) {
-      listener(this.state);
-    }
+    for (const listener of this.listeners) listener(this.state);
   }
 
-  async recordAttempt(input: RecordAttemptInput): Promise<ProgressData> {
-    const now = input.now ?? new Date();
-    const dateKey = now.toISOString().slice(0, 10);
-    const next = structuredClone(this.state);
-
-    next.updatedAt = now.toISOString();
-    next.totalTrials += 1;
-    next.totalTimeMs += Math.max(0, Math.round(input.responseTimeMs));
-
-    // Update daily streak
-    if (!next.lastPracticeDate) {
-      next.streakDays = 1;
-      next.lastPracticeDate = dateKey;
-    } else if (next.lastPracticeDate !== dateKey) {
-      const prevDate = new Date(`${next.lastPracticeDate}T00:00:00Z`);
-      const currDate = new Date(`${dateKey}T00:00:00Z`);
-      const diffDays = Math.round((currDate.getTime() - prevDate.getTime()) / 86_400_000);
-      if (diffDays === 1) {
-        next.streakDays += 1;
-      } else if (diffDays > 1) {
-        next.streakDays = 1;
-      }
-      next.lastPracticeDate = dateKey;
-    }
-
-    const existingSkill: SkillRecord = next.skills[input.skillId] ?? {
-      skillId: input.skillId,
-      section: input.section,
-      attempts: [],
-      lastTrialIndex: 0,
-      recentSampleIds: [],
-      mastery: 'unseen',
-    };
-
-    existingSkill.attempts.push({
-      timestamp: now.getTime(),
-      correct: input.correct,
-      responseTimeMs: Math.max(0, Math.round(input.responseTimeMs)),
-      assisted: input.assisted,
-      chosenSkillId: input.chosenSkillId,
-      sampleId: input.sampleId,
-    });
-    if (existingSkill.attempts.length > 30) {
-      existingSkill.attempts = existingSkill.attempts.slice(-30);
-    }
-
-    existingSkill.lastTrialIndex = input.trialIndex;
-    existingSkill.mastery = input.mastery;
-
-    if (input.sampleId) {
-      existingSkill.recentSampleIds = [
-        ...existingSkill.recentSampleIds.filter((id) => id !== input.sampleId),
-        input.sampleId,
-      ].slice(-12);
-    }
-
-    next.skills[input.skillId] = existingSkill;
-
-    // Update directed confusion matrix on incorrect choices
-    if (
-      !input.correct &&
-      input.chosenSkillId &&
-      input.chosenSkillId !== input.skillId
-    ) {
-      if (!next.confusionMatrix[input.skillId]) {
-        next.confusionMatrix[input.skillId] = {};
-      }
-      next.confusionMatrix[input.skillId][input.chosenSkillId] =
-        (next.confusionMatrix[input.skillId][input.chosenSkillId] ?? 0) + 1;
-    }
-
-    next.recentTrials.push({
-      id: `trial-${next.totalTrials}-${now.getTime()}`,
-      timestamp: now.getTime(),
-      section: input.section,
-      skillId: input.skillId,
-      chosenSkillId: input.chosenSkillId,
-      sampleId: input.sampleId,
-      correct: input.correct,
-      responseTimeMs: Math.max(0, Math.round(input.responseTimeMs)),
-      assisted: input.assisted,
-    });
-    if (next.recentTrials.length > 500) {
-      next.recentTrials = next.recentTrials.slice(-500);
-    }
-
+  private async commit(next: ProgressData): Promise<ProgressData> {
     this.state = next;
     try {
       await this.adapter.save(this.state);
     } finally {
-      // The attempt remains available to the current session if persistence fails.
+      // The change stays available this session even if persistence fails.
       this.emit();
     }
     return this.state;
   }
 
-  async markPrimeCompleted(groupId: string): Promise<ProgressData> {
-    if (this.state.completedPrimes.includes(groupId)) {
-      return this.state;
-    }
+  async recordAnswer(input: RecordAnswerInput): Promise<ProgressData> {
+    const now = input.now ?? new Date();
+    const dateKey = localDateKey(now);
     const next = structuredClone(this.state);
-    next.completedPrimes.push(groupId);
+
+    next.updatedAt = now.toISOString();
+    next.totalAnswers += 1;
+
+    if (!next.lastPracticeDate) {
+      next.streakDays = 1;
+    } else if (next.lastPracticeDate !== dateKey) {
+      const gap = dayNumber(dateKey) - dayNumber(next.lastPracticeDate);
+      next.streakDays = gap === 1 ? next.streakDays + 1 : 1;
+    }
+    next.lastPracticeDate = dateKey;
+
+    next.activity[dateKey] = (next.activity[dateKey] ?? 0) + 1;
+    const days = Object.keys(next.activity).sort();
+    for (const stale of days.slice(0, Math.max(0, days.length - ACTIVITY_DAYS_KEPT))) {
+      delete next.activity[stale];
+    }
+
+    next.clues[input.clueId] = reviewClue(
+      next.clues[input.clueId],
+      input.result,
+      Math.max(0, input.responseTimeMs),
+      now
+    );
+
+    // Only real clue-to-clue mix-ups are tracked; foils are not clues.
+    if (
+      input.result === 'wrong' &&
+      input.chosenId &&
+      input.chosenId !== input.clueId &&
+      !input.chosenId.startsWith('foil-')
+    ) {
+      const row = (next.confusions[input.clueId] ??= {});
+      row[input.chosenId] = (row[input.chosenId] ?? 0) + 1;
+    }
+
+    return this.commit(next);
+  }
+
+  async completeLesson(lessonId: string): Promise<ProgressData> {
+    if (this.state.completedLessons.includes(lessonId)) return this.state;
+    const next = structuredClone(this.state);
+    next.completedLessons.push(lessonId);
     next.updatedAt = new Date().toISOString();
-    this.state = next;
-    await this.adapter.save(this.state);
-    this.emit();
-    return this.state;
+    return this.commit(next);
   }
 
   exportBackup(): string {
@@ -256,78 +214,13 @@ export class ProgressStore {
       }
     }
     const validated = validateProgressData(parsedJson);
-    if (!validated.ok) {
-      return validated;
-    }
-    this.state = validated.data;
-    await this.adapter.save(this.state);
-    this.emit();
+    if (!validated.ok) return validated;
+    await this.commit(validated.data);
     return { ok: true, data: this.state };
   }
 
-  async resetSection(
-    section: SectionId,
-    options: { confirmed: boolean }
-  ): Promise<ProgressData> {
-    if (!options.confirmed) {
-      throw new Error('Reset requires explicit user confirmation.');
-    }
-    const next = structuredClone(this.state);
-    const removedSkillIds = new Set<string>();
-    for (const [skillId, record] of Object.entries(next.skills)) {
-      if (record.section === section) {
-        removedSkillIds.add(skillId);
-        delete next.skills[skillId];
-      }
-    }
-    for (const expectedId of removedSkillIds) {
-      delete next.confusionMatrix[expectedId];
-    }
-    next.recentTrials = next.recentTrials.filter((t) => t.section !== section);
-    if (section === 'languages') {
-      next.completedPrimes = [];
-    }
-    next.updatedAt = new Date().toISOString();
-    this.state = next;
-    await this.adapter.save(this.state);
-    this.emit();
-    return this.state;
-  }
-
   async resetAll(options: { confirmed: boolean }): Promise<ProgressData> {
-    if (!options.confirmed) {
-      throw new Error('Reset requires explicit user confirmation.');
-    }
-    this.state = createInitialProgressData();
-    await this.adapter.save(this.state);
-    this.emit();
-    return this.state;
-  }
-
-  getSectionMasteryBreakdown(section: SectionId): SectionMasteryBreakdown {
-    const allSkillIds = getAllSkillIdsForSection(section);
-    const counts: Record<MasteryState, number> = {
-      unseen: 0,
-      learning: 0,
-      recognized: 0,
-      mastered: 0,
-    };
-
-    for (const skillId of allSkillIds) {
-      const record = this.state.skills[skillId];
-      const state: MasteryState = record ? record.mastery : 'unseen';
-      counts[state] += 1;
-    }
-
-    const practicedTrials = this.state.recentTrials.filter(
-      (t) => t.section === section
-    ).length;
-
-    return {
-      section,
-      ...counts,
-      total: allSkillIds.length,
-      practicedTrials,
-    };
+    if (!options.confirmed) throw new Error('Reset requires explicit user confirmation.');
+    return this.commit(createInitialProgressData());
   }
 }

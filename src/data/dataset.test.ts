@@ -7,8 +7,9 @@ import {
   LANGUAGE_MAP,
   getLanguagesForGroupSelection,
   findTellMatchesInSample,
-  getAllSkillIdsForSection,
 } from './index';
+import { isKnownSignLanguage } from './signLanguages';
+import { compileTellRegex } from './tells';
 import type { LanguageGroupId } from './types';
 
 const REQUIRED_LANGUAGE_GROUPS: Array<{ id: LanguageGroupId; name: string }> = [
@@ -34,6 +35,31 @@ const REQUIRED_TERRITORIES = [
   're', // Réunion
   'cx', // Christmas Island
 ];
+
+describe('Dataset corrections', () => {
+  it('names every sign language and no longer maps countries to proxy languages', () => {
+    for (const country of PLAYABLE_COUNTRIES) {
+      for (const id of country.signLanguages) {
+        expect(isKnownSignLanguage(id), `${country.id} -> ${id}`).toBe(true);
+      }
+    }
+    expect(PLAYABLE_COUNTRY_MAP.al.signLanguages).toEqual(['sq']);
+    expect(PLAYABLE_COUNTRY_MAP.ir.signLanguages).toEqual(['fa']);
+    expect(PLAYABLE_COUNTRY_MAP.kz.signLanguages).toContain('kk');
+  });
+
+  it('uses the euro in Bulgaria and keeps notes professional', () => {
+    expect(PLAYABLE_COUNTRY_MAP.bg.currencies[0].code).toBe('EUR');
+    for (const c of PLAYABLE_COUNTRIES) expect(c.coverageNote).not.toMatch(/shitcam/i);
+  });
+
+  it('matches non-ASCII word boundaries (JavaScript \\b is ASCII only)', () => {
+    expect(compileTellRegex('\\bвул\\.').test('вул. Шевченка')).toBe(true);
+    expect(compileTellRegex('(ого\\b)', 'u').test('нового')).toBe(true);
+    expect(compileTellRegex('\\b(el)\\b', 'u').test('el parque')).toBe(true);
+    expect(compileTellRegex('\\b(el)\\b', 'u').test('Rafael')).toBe(false);
+  });
+});
 
 describe('Dataset Integrity Seam', () => {
   it('defines canonical Playable Countries including required distinct GeoGuessr territories and all 3 Coverage Tiers', () => {
@@ -139,11 +165,5 @@ describe('Dataset Integrity Seam', () => {
         ).not.toBe('none');
       }
     }
-
-    // Skill IDs for all 4 sections are derived cleanly from the canonical dataset
-    expect(getAllSkillIdsForSection('languages').length).toBe(LANGUAGES.length);
-    expect(getAllSkillIdsForSection('driving-side').length).toBeGreaterThan(50);
-    expect(getAllSkillIdsForSection('coverage').length).toBe(PLAYABLE_COUNTRIES.length);
-    expect(getAllSkillIdsForSection('domains-currencies').length).toBeGreaterThan(40);
   });
 });

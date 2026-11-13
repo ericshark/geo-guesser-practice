@@ -1,47 +1,8 @@
-export type SectionId = 'languages' | 'driving-side' | 'coverage' | 'domains-currencies';
-
-export type MasteryState = 'unseen' | 'learning' | 'recognized' | 'mastered';
-
 export type CoverageTier = 'official' | 'limited' | 'none';
 
 export type DrivingSide = 'left' | 'right';
 
 export type WorldRegion = 'Europe' | 'Asia' | 'Oceania' | 'Africa' | 'Americas';
-
-export type CoverageFocusId =
-  | 'world'
-  | 'Europe'
-  | 'Asia'
-  | 'Africa'
-  | 'Americas'
-  | 'Oceania'
-  | 'trap-countries';
-
-export interface CoverageFocusSpec {
-  id: CoverageFocusId;
-  name: string;
-  shortName: string;
-  description: string;
-  highlightExamples: string[];
-}
-
-export type DrivingSideFocusId =
-  | 'world'
-  | 'tricky-borders'
-  | 'europe'
-  | 'southern-eastern-africa'
-  | 'south-se-asia'
-  | 'oceania'
-  | 'americas-caribbean';
-
-export interface DrivingSideFocusSpec {
-  id: DrivingSideFocusId;
-  name: string;
-  shortName: string;
-  mapRegionLabel: string;
-  description: string;
-  highlightExamples: string[];
-}
 
 export type LanguageGroupId =
   | 'east-asian'
@@ -54,8 +15,6 @@ export type LanguageGroupId =
   | 'baltic-finnic'
   | 'mediterranean-middle-east-caucasus'
   | 'african';
-
-export type LanguageGroupSelectionId = LanguageGroupId | 'all-mixed' | 'smart-weakest';
 
 export interface CurrencySpec {
   symbol: string;

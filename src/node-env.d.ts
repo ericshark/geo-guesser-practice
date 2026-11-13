@@ -5,7 +5,11 @@ declare module 'node:fs/promises' {
   function rename(oldPath: string, newPath: string): Promise<void>;
   function mkdtemp(prefix: string): Promise<string>;
   function rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
+  function access(path: string): Promise<void>;
+  function copyFile(src: string, dest: string): Promise<void>;
   const fs: {
+    access: typeof access;
+    copyFile: typeof copyFile;
     readFile: typeof readFile;
     writeFile: typeof writeFile;
     mkdir: typeof mkdir;

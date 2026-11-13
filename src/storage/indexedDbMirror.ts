@@ -1,9 +1,9 @@
 import Dexie, { type Table } from 'dexie';
-import { type ProgressData, validateProgressData } from './schema.ts';
+import { isLegacyProgress, type ProgressData, validateProgressData } from './schema.ts';
 
 interface StoredProgressRow {
   id: string;
-  data: ProgressData;
+  data: unknown;
 }
 
 class GeoGuessrProgressDexie extends Dexie {
@@ -20,12 +20,8 @@ class GeoGuessrProgressDexie extends Dexie {
 let dbInstance: GeoGuessrProgressDexie | null = null;
 
 function getDb(): GeoGuessrProgressDexie | null {
-  if (typeof indexedDB === 'undefined') {
-    return null;
-  }
-  if (!dbInstance) {
-    dbInstance = new GeoGuessrProgressDexie();
-  }
+  if (typeof indexedDB === 'undefined') return null;
+  if (!dbInstance) dbInstance = new GeoGuessrProgressDexie();
   return dbInstance;
 }
 
@@ -46,9 +42,14 @@ export async function writeProgressToIndexedDb(data: ProgressData): Promise<void
   try {
     const db = getDb();
     if (!db) return;
+    // Keep the previous (version 1) app's progress under its own row before replacing it.
+    const existing = await db.snapshots.get('current');
+    if (existing && isLegacyProgress(existing.data)) {
+      await db.snapshots.put({ id: 'v1-backup', data: existing.data });
+    }
     await db.snapshots.put({ id: 'current', data });
   } catch {
-    // Ignore IndexedDB quota/unavailable errors when running in restricted environments
+    // Ignore IndexedDB quota/unavailable errors in restricted environments.
   }
 }
 
@@ -58,6 +59,6 @@ export async function clearProgressIndexedDb(): Promise<void> {
     if (!db) return;
     await db.snapshots.clear();
   } catch {
-    // Ignore errors
+    // Ignore errors.
   }
 }

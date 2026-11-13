@@ -1,5 +1,7 @@
 # Schedule by skill and confusion pair using ARTS, not per-sample cards
 
+> Superseded in part by [0004](./0004-fsrs-per-clue-scheduling.md): the scheduling algorithm is now FSRS per clue. The rule of scheduling skills (never single prompts) still holds.
+
 Practice items are scheduled at the **skill level** (per Language, Playable Country, or Domain/Currency) and by **confusion pair** (e.g., Slovak ↔ Czech) using Adaptive Response-Time-based Sequencing (ARTS), while always drawing a fresh, unseen Sample on every trial.
 
 ## Context & Reason
