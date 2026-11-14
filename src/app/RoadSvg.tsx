@@ -1,6 +1,7 @@
 import type { BollardVisual, PlateVisual, PoleVisual, RoadVisual, SignVisual, Visual } from '../content/types.ts';
+import { KmPostSvg, PedSignalSvg, StreetSignSvg, TrafficLightSvg } from './SignageSvg.tsx';
 
-const COLOURS = { white: '#f5f5f2', yellow: '#e8b923', red: '#c0392b' };
+const COLOURS = { white: '#f5f5f2', yellow: '#e8b923', red: '#c0392b', black: '#1c1c1e' };
 
 /** Draws whichever schematic a stimulus carries. */
 export function VisualSvg({ visual, label }: { visual: Visual; label: string }) {
@@ -8,6 +9,10 @@ export function VisualSvg({ visual, label }: { visual: Visual; label: string }) 
   if (visual.kind === 'plate') return <PlateSvg visual={visual} label={label} />;
   if (visual.kind === 'sign') return <SignSvg visual={visual} label={label} />;
   if (visual.kind === 'pole') return <PoleSvg visual={visual} label={label} />;
+  if (visual.kind === 'street-sign') return <StreetSignSvg visual={visual} label={label} />;
+  if (visual.kind === 'km-post') return <KmPostSvg visual={visual} label={label} />;
+  if (visual.kind === 'traffic-light') return <TrafficLightSvg visual={visual} label={label} />;
+  if (visual.kind === 'ped-signal') return <PedSignalSvg visual={visual} label={label} />;
   if (visual.kind === 'photo') {
     return (
       <img
@@ -179,17 +184,50 @@ export function BollardSvg({ visual, label }: { visual: BollardVisual; label: st
 
 /** Front and rear plate side by side. Colours and strip only; the lettering is deliberately blank. */
 export function PlateSvg({ visual, label }: { visual: PlateVisual; label: string }) {
-  const plate = (x: number, colour: PlateVisual['front'], caption: string) => (
-    <g>
-      <rect x={x} y={34} width={130} height={40} rx={5} fill={COLOURS[colour]} stroke="#222" strokeWidth={2} />
-      {visual.strip === 'blue-left' && <rect x={x + 2} y={36} width={14} height={36} rx={3} fill="#1b4fa8" />}
-      <rect x={x + 30} y={48} width={84} height={12} rx={2} fill={colour === 'red' ? '#f3d9d4' : '#222'} opacity={0.18} />
-      <text x={x + 65} y={96} textAnchor="middle" fontSize={11} fill="currentColor">{caption}</text>
-    </g>
-  );
+  const w = visual.shape === 'short' ? 92 : 130;
+  const h = visual.shape === 'short' ? 52 : 40;
+  const top = 74 - h / 2 - 16;
+  const plate = (x: number, colour: PlateVisual['front'], caption: string, missing = false) => {
+    const px = x + (130 - w) / 2;
+    if (missing) {
+      return (
+        <g>
+          <rect x={px} y={top} width={w} height={h} rx={5} fill="none" stroke="currentColor" strokeWidth={1.5} strokeDasharray="5 4" opacity={0.5} />
+          <text x={px + w / 2} y={top + h / 2 + 4} textAnchor="middle" fontSize={11} fill="currentColor" opacity={0.7}>no plate</text>
+          <text x={x + 65} y={96} textAnchor="middle" fontSize={11} fill="currentColor">{caption}</text>
+        </g>
+      );
+    }
+    const dark = colour === 'black';
+    return (
+      <g>
+        <rect x={px} y={top} width={w} height={h} rx={5} fill={COLOURS[colour]} stroke="#222" strokeWidth={2} />
+        {visual.strip === 'blue-left' && <rect x={px + 2} y={top + 2} width={14} height={h - 4} rx={3} fill="#1b4fa8" />}
+        {visual.strip === 'blue-top' && <rect x={px + 3} y={top + 3} width={w - 6} height={9} rx={2} fill="#1b4fa8" />}
+        {visual.strip === 'flag-right' && (
+          <g>
+            <rect x={px + w - 22} y={top + 4} width={18} height={h - 8} rx={2} fill="none" stroke="#222" strokeWidth={1} />
+            <rect x={px + w - 20} y={top + h - 22} width={14} height={4} fill="#f5f5f2" />
+            <rect x={px + w - 20} y={top + h - 18} width={14} height={4} fill="#1b4fa8" />
+            <rect x={px + w - 20} y={top + h - 14} width={14} height={4} fill={COLOURS.red} />
+          </g>
+        )}
+        <rect
+          x={px + (visual.strip === 'blue-left' ? 30 : 16)}
+          y={top + h / 2 - 6 + (visual.strip === 'blue-top' ? 5 : 0)}
+          width={w - (visual.strip === 'blue-left' ? 46 : visual.strip === 'flag-right' ? 44 : 32)}
+          height={12}
+          rx={2}
+          fill={dark || colour === 'red' ? '#f5f5f2' : '#222'}
+          opacity={0.22}
+        />
+        <text x={x + 65} y={96} textAnchor="middle" fontSize={11} fill="currentColor">{caption}</text>
+      </g>
+    );
+  };
   return (
     <svg viewBox="0 0 320 110" role="img" aria-label={label} style={{ width: '100%', maxWidth: 360, height: 'auto', display: 'block', margin: '0 auto' }}>
-      {plate(16, visual.front, 'Front')}
+      {plate(16, visual.front, 'Front', visual.frontless)}
       {plate(174, visual.rear, 'Rear')}
     </svg>
   );
@@ -202,7 +240,8 @@ export function RoadSvg({ visual, label }: { visual: RoadVisual; label: string }
   const left = 40;
   const right = W - 40;
   const mid = W / 2;
-  const edgeColour = visual.edge === 'yellow' ? COLOURS.yellow : COLOURS.white;
+  const yellowEdge = visual.edge === 'yellow' || visual.edge === 'yellow-dashed';
+  const edgeColour = yellowEdge ? COLOURS.yellow : COLOURS.white;
 
   const dashes = (x: number, colour: string, dash: string, width = 4) => (
     <line x1={x} y1={0} x2={x} y2={H} stroke={colour} strokeWidth={width} strokeDasharray={dash} />
@@ -227,9 +266,28 @@ export function RoadSvg({ visual, label }: { visual: RoadVisual; label: string }
           {dashes(right, COLOURS.white, '38 12')}
         </>
       )}
+      {visual.edge === 'white-short-dash' && (
+        <>
+          {dashes(left, COLOURS.white, '12 12')}
+          {dashes(right, COLOURS.white, '12 12')}
+        </>
+      )}
+      {visual.edge === 'yellow-dashed' && (
+        <>
+          {dashes(left, COLOURS.yellow, '24 16')}
+          {dashes(right, COLOURS.yellow, '24 16')}
+        </>
+      )}
 
       {visual.centre === 'white-dashed' && dashes(mid, COLOURS.white, '16 14')}
       {visual.centre === 'yellow-dashed' && dashes(mid, COLOURS.yellow, '16 14')}
+      {visual.centre === 'yellow-solid' && dashes(mid, COLOURS.yellow, '0')}
+      {visual.centre === 'yellow-white' && (
+        <>
+          {dashes(mid - 4, COLOURS.yellow, '0', 3)}
+          {dashes(mid + 4, COLOURS.white, '16 14', 3)}
+        </>
+      )}
       {visual.centre === 'yellow-double' && (
         <>
           {dashes(mid - 4, COLOURS.yellow, '0', 3)}

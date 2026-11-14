@@ -3,8 +3,8 @@ import type { TellSpec, WorldRegion } from '../data/types.ts';
 /** A schematic road, drawn as SVG (lines are what matters, not realism). */
 export interface RoadVisual {
   kind: 'road';
-  centre: 'white-dashed' | 'yellow-double' | 'yellow-dashed' | 'none';
-  edge: 'white' | 'yellow' | 'white-long-dash' | 'none';
+  centre: 'white-dashed' | 'yellow-double' | 'yellow-dashed' | 'yellow-solid' | 'yellow-white' | 'none';
+  edge: 'white' | 'yellow' | 'yellow-dashed' | 'white-long-dash' | 'white-short-dash' | 'none';
   /** Urban zigzag lines along the kerb. */
   zigzag?: boolean;
 }
@@ -12,9 +12,13 @@ export interface RoadVisual {
 /** A front and rear licence plate pair (colours and the side strip; no lettering). */
 export interface PlateVisual {
   kind: 'plate';
-  front: 'white' | 'yellow' | 'red';
-  rear: 'white' | 'yellow' | 'red';
-  strip: 'blue-left' | 'none';
+  front: 'white' | 'yellow' | 'red' | 'black';
+  rear: 'white' | 'yellow' | 'red' | 'black';
+  strip: 'blue-left' | 'blue-top' | 'flag-right' | 'none';
+  /** Short, almost square plates (kei cars, Laos). Plates are long by default. */
+  shape?: 'long' | 'short';
+  /** Only a rear plate is carried (many US states). */
+  frontless?: boolean;
 }
 
 /** A roadside bollard, seen from the front. Schematic: the marking is what matters. */
@@ -40,6 +44,54 @@ export interface SignVisual {
   accent: 'red' | 'black' | 'white';
 }
 
+/** A street name plate: colours, outline, shape and how it is mounted. */
+export interface StreetSignVisual {
+  kind: 'street-sign';
+  bg: 'blue' | 'white' | 'green' | 'black';
+  border: 'white' | 'blue' | 'black' | 'none';
+  shape: 'rect' | 'arrow';
+  /** A strip along the bottom (district, postcode or a painted post). */
+  band?: 'black' | 'green' | 'blue' | 'red';
+  /** Low plate on two short posts. */
+  posts?: boolean;
+}
+
+/** A kilometre marker or route marker, reduced to its shape and colours. */
+export interface KmPostVisual {
+  kind: 'km-post';
+  shape: 'post' | 'plate';
+  body: 'white' | 'blue';
+  border?: 'red' | 'black' | 'white' | 'orange';
+  /** Semicircle on top of a post. */
+  cap?: 'red' | 'yellow';
+  /** Dark strip across the top (the road number). */
+  topBand?: 'black';
+  /** Roman numeral above the Arabic one (hundreds of metres over kilometres). */
+  roman?: boolean;
+}
+
+/** A vehicle traffic signal head. */
+export interface TrafficLightVisual {
+  kind: 'traffic-light';
+  orientation: 'vertical' | 'horizontal';
+  housing: 'black' | 'yellow';
+  /** A white outline round the housing. */
+  outline?: boolean;
+  /** Red square, amber diamond, green circle. */
+  shapedLamps?: boolean;
+  /** The go lamp is blue-green (Japan). */
+  blueGreen?: boolean;
+  /** A countdown display above the lamps. */
+  countdown?: boolean;
+  mount?: 'arm' | 'wires' | 'pole';
+}
+
+/** A pedestrian signal head. */
+export interface PedSignalVisual {
+  kind: 'ped-signal';
+  style: 'hat-man' | 'walk-stand' | 'white-man-orange-hand';
+}
+
 /** A bundled photo (`public/media/<id>.jpg`); author and licence live in mediaCredits.json. */
 export interface PhotoVisual {
   kind: 'photo';
@@ -60,7 +112,17 @@ export interface PoleVisual {
     | 'lattice';
 }
 
-export type Visual = RoadVisual | PlateVisual | BollardVisual | SignVisual | PhotoVisual | PoleVisual;
+export type Visual =
+  | RoadVisual
+  | PlateVisual
+  | BollardVisual
+  | SignVisual
+  | PhotoVisual
+  | PoleVisual
+  | StreetSignVisual
+  | KmPostVisual
+  | TrafficLightVisual
+  | PedSignalVisual;
 
 /** One thing the learner is shown in a question (a sign, a web address, a price...). */
 export interface Stimulus {
@@ -118,6 +180,13 @@ export interface Clue {
   value: 1 | 2 | 3;
   /** `medium` clues are phrased as tendencies ("usually") rather than rules. */
   confidence: 'high' | 'medium';
+  /** Independent references the clue was checked against (clues added or re-checked recently). */
+  sources?: Source[];
+}
+
+export interface Source {
+  title: string;
+  url: string;
 }
 
 export interface Lesson {

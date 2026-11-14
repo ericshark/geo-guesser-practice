@@ -100,6 +100,80 @@ describe('curriculum content', () => {
     }
   });
 
+  describe('thickened and new road topics', () => {
+    const SIZED = ['road-lines', 'plates', 'vehicles', 'landscape', 'architecture', 'street-names', 'km-posts', 'traffic-lights'];
+
+    it('gives each of these topics 8 to 12 clues', () => {
+      for (const topicId of SIZED) {
+        const count = CLUES.filter((c) => c.topicId === topicId).length;
+        expect(count, topicId).toBeGreaterThanOrEqual(8);
+        expect(count, topicId).toBeLessThanOrEqual(12);
+      }
+    });
+
+    it('gives every clue a look-alike with a note on how to tell them apart, in both directions', () => {
+      for (const clue of CLUES.filter((c) => SIZED.includes(c.topicId))) {
+        expect(clue.confusables.length, clue.id).toBeGreaterThan(0);
+        for (const c of clue.confusables) {
+          expect(c.howToTell.trim().length, `${clue.id} -> ${c.clueId}`).toBeGreaterThan(20);
+          const other = CLUE_MAP[c.clueId];
+          expect(other, c.clueId).toBeDefined();
+          expect(other.topicId).toBe(clue.topicId);
+          expect(other.confusables.some((back) => back.clueId === clue.id), `${c.clueId} should list ${clue.id}`).toBe(true);
+        }
+      }
+    });
+
+    it('only calls a clue high-confidence when two independent sources agree', () => {
+      for (const clue of CLUES.filter((c) => SIZED.includes(c.topicId) || c.topicId === 'regions')) {
+        const hosts = new Set((clue.sources ?? []).map((s) => new URL(s.url).host.replace(/^www\./, '')));
+        for (const s of clue.sources ?? []) expect(s.url, clue.id).toMatch(/^https:\/\//);
+        if (clue.confidence === 'high' && SIZED.includes(clue.topicId)) {
+          expect(hosts.size, `${clue.id} is high confidence but cites ${hosts.size} source host(s)`).toBeGreaterThanOrEqual(2);
+        }
+      }
+    });
+
+    it('draws every visual clue with a visual the renderer knows', () => {
+      const known = new Set(['road', 'plate', 'bollard', 'sign', 'photo', 'pole', 'street-sign', 'km-post', 'traffic-light', 'ped-signal']);
+      for (const clue of CLUES.filter((c) => SIZED.includes(c.topicId))) {
+        for (const s of clue.stimuli) if (s.visual) expect(known.has(s.visual.kind), clue.id).toBe(true);
+      }
+    });
+
+    it('has no two clues in one topic drawn with identical visuals', () => {
+      for (const topicId of SIZED) {
+        const seen = new Map<string, string>();
+        for (const clue of CLUES.filter((c) => c.topicId === topicId)) {
+          for (const s of clue.stimuli) {
+            if (!s.visual) continue;
+            const key = JSON.stringify(s.visual);
+            expect(seen.has(key) && seen.get(key) !== clue.id, `${clue.id} looks the same as ${seen.get(key)}`).toBe(false);
+            seen.set(key, clue.id);
+          }
+        }
+      }
+    });
+  });
+
+  it('teaches the Pacific territories and the three new Regions topics', () => {
+    const covered = new Set(CLUES.flatMap((c) => c.countryIds));
+    for (const id of ['gu', 'mp', 'as', 'xk', 'ps', 'sj', 'ax', 'fk']) {
+      expect(PLAYABLE_COUNTRY_MAP[id], id).toBeDefined();
+    }
+    for (const id of ['gu', 'mp', 'as']) expect(covered.has(id), `${id} appears in no clue`).toBe(true);
+    for (const key of ['indonesia', 'mexico', 'argentina']) {
+      expect(CLUES.filter((c) => c.id.startsWith(`region:${key}:`)).length, key).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it('splits the Americas into North and South America', () => {
+    const regions = new Set(CLUES.flatMap((c) => c.regions));
+    expect(regions.has('North America')).toBe(true);
+    expect(regions.has('South America')).toBe(true);
+    expect([...regions].some((r) => (r as string) === 'Americas')).toBe(false);
+  });
+
   it('credits every bundled photo with an author and an open licence', async () => {
     const credits = JSON.parse(await fs.readFile(path.resolve(process.cwd(), 'src/content/mediaCredits.json'), 'utf-8'));
     for (const clue of CLUES) {

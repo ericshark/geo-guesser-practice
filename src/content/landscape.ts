@@ -1,6 +1,6 @@
 import { PLAYABLE_COUNTRY_MAP } from '../data/index.ts';
 import type { Clue, Topic } from './types.ts';
-import { chunkLessons } from './helpers.ts';
+import { attachSources, chunkLessons, linkConfusables, plonkit, wiki } from './helpers.ts';
 
 const TOPIC_ID = 'landscape';
 const GROUP = 'landscape';
@@ -47,10 +47,21 @@ export function buildLandscape(): { topic: Topic; clues: Clue[] } {
       'iceland',
       'Iceland',
       'landscape-iceland',
-      'Treeless green highland with bare volcanic mountains, often with snow on the peaks.',
-      ['No forests: grass, moss and low shrubs.', 'Small, brightly painted houses sit alone in the open.'],
+      'Almost treeless green highland with bare volcanic mountains, often with snow on the peaks.',
+      ['Only small patches of birch wood survive: mostly grass, moss and lava fields.', 'Small, brightly painted houses sit alone in the open.'],
       ['is'],
       'Treeless green lowland with bare volcanic mountains and a snow-capped peak',
+      3,
+      'medium'
+    ),
+    scene(
+      'norway-fjord',
+      'Norway',
+      'landscape-norway',
+      'A narrow, deep sea inlet between steep, forested mountain walls (a fjord).',
+      ['Roads hug the water and climb in hairpins; green farmland sits in small patches along the shore.'],
+      ['no'],
+      'Turquoise fjord between steep green mountains with a switchback road',
       3,
       'high'
     ),
@@ -63,7 +74,7 @@ export function buildLandscape(): { topic: Topic; clues: Clue[] } {
       ['au'],
       'Straight red dirt road through low scrub',
       3,
-      'high'
+      'medium'
     ),
     scene(
       'east-africa',
@@ -87,16 +98,76 @@ export function buildLandscape(): { topic: Topic; clues: Clue[] } {
       2,
       'medium'
     ),
+    scene(
+      'mongolia-steppe',
+      'Mongolia',
+      'landscape-mongolia',
+      'Endless rolling grassland with no trees, low hills on the horizon and sparse fences or poles.',
+      ['Kazakhstan has similar open steppe, so use plates, scripts and signs to separate them.'],
+      ['mn', 'kz'],
+      'Open green steppe with low hills and a lone telegraph pole',
+      3,
+      'medium'
+    ),
+    scene(
+      'altiplano',
+      'Bolivia and Peru',
+      'landscape-altiplano',
+      'A high, dry plateau of stony ground and bunch grass with snow peaks behind and adobe huts.',
+      ['Eucalyptus planted in small clumps is typical; the thin air and treelessness mark the Andean altiplano.'],
+      ['bo', 'pe'],
+      'Gravel road across a high plateau with snow peaks, a lake and an adobe hut',
+      3,
+      'medium'
+    ),
+    scene(
+      'patagonia',
+      'Argentina and Chile',
+      'landscape-patagonia',
+      'Flat, wind-scoured steppe of golden tussock grass, with long fences and distant snow.',
+      ['Wildlife such as guanacos is often in view. The far south of both countries looks like this.'],
+      ['ar', 'cl'],
+      'Golden tussock steppe under a pale sky with snow far away',
+      2,
+      'medium'
+    ),
   ];
 
-  const lessons = chunkLessons({
-    topicId: TOPIC_ID,
-    baseId: 'landscape-signatures',
-    title: 'Landscape signatures',
-    summary: 'Broad scenery that points to a country or region.',
-    clues,
-    max: 4,
+  linkConfusables(clues, 'landscape:', [
+    ['iceland', 'norway-fjord', 'Iceland is treeless with bare volcanic slopes; Norwegian mountainsides are covered in forest and drop into fjords.'],
+    ['mongolia-steppe', 'patagonia', 'Mongolia: smooth green grassland with low rounded hills. Patagonia: coarse golden tussock, often with fences and snow in view.'],
+    ['altiplano', 'patagonia', 'The altiplano is high with snow peaks, adobe huts and lakes; Patagonia is a low flat steppe with long straight fences.'],
+    ['australia', 'east-africa', 'Australia: red soil under low scrub. East Africa: pale golden grass under flat-topped acacia trees.'],
+    ['southeast-asia', 'east-africa', 'Southeast Asia is wet and green with terraces; East Africa is dry and golden.'],
+  ]);
+
+  attachSources(clues, 'landscape:', {
+    iceland: [wiki('Geography_of_Iceland', 'Geography of Iceland')],
+    australia: [wiki('Outback')],
+    'norway-fjord': [wiki('Fjord'), plonkit('norway', 'Norway')],
+    'mongolia-steppe': [plonkit('mongolia', 'Mongolia'), wiki('Eurasian_Steppe', 'Eurasian steppe')],
+    altiplano: [wiki('Altiplano'), plonkit('bolivia', 'Bolivia')],
+    patagonia: [plonkit('argentina', 'Argentina'), wiki('Patagonian_Steppe', 'Patagonian steppe')],
   });
+
+  const lessons = [
+    ...chunkLessons({
+      topicId: TOPIC_ID,
+      baseId: 'landscape-signatures',
+      title: 'Landscape signatures',
+      summary: 'Broad scenery that points to a country or region.',
+      clues: clues.slice(0, 5),
+      max: 6,
+    }),
+    ...chunkLessons({
+      topicId: TOPIC_ID,
+      baseId: 'landscape-open-country',
+      title: 'Steppe, plateau and fjord',
+      summary: 'Treeless open country and dramatic terrain that narrows a region.',
+      clues: clues.slice(5),
+      max: 6,
+    }),
+  ];
 
   return {
     clues,
@@ -106,7 +177,7 @@ export function buildLandscape(): { topic: Topic; clues: Clue[] } {
       title: 'Landscape & vegetation',
       tagline: 'Biomes, soil and signature trees.',
       why: 'Scenery is the main clue across much of the Americas and Africa, where countries are large and roads look alike. Soil colour, trees and terrain narrow a guess before any sign appears.',
-      bestRegions: 'The Americas, Africa, Oceania',
+      bestRegions: 'The Americas, Africa, Oceania, Central Asia',
       lessons,
     },
   };

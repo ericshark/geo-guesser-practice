@@ -9,12 +9,15 @@ import { buildPoles } from './poles.ts';
 import { buildPlates } from './plates.ts';
 import { buildRoadSigns } from './roadSigns.ts';
 import { buildRoadLines } from './roadLines.ts';
+import { buildStreetNames } from './streetNames.ts';
+import { buildKmPosts } from './kmPosts.ts';
+import { buildTrafficLights } from './trafficLights.ts';
 import { buildTextClues } from './textClues.ts';
 import type { Clue, Lesson, Topic } from './types.ts';
 
 export * from './types.ts';
 
-const built = [buildFoundations(), buildLanguages(), buildRoadLines(), buildRoadSigns(), buildBollards(), buildPlates(), buildPoles(), buildVehicles(), buildLandscape(), buildArchitecture(), buildRegions(), buildTextClues()];
+const built = [buildFoundations(), buildLanguages(), buildRoadLines(), buildRoadSigns(), buildStreetNames(), buildKmPosts(), buildTrafficLights(), buildBollards(), buildPlates(), buildPoles(), buildVehicles(), buildLandscape(), buildArchitecture(), buildRegions(), buildTextClues()];
 
 /** Topics that are playable today, in curriculum order. */
 export const TOPICS: Topic[] = built.map((b) => b.topic).sort((a, b) => a.order - b.order);
