@@ -93,7 +93,7 @@ export function buildRoadLines(): { topic: Topic; clues: Clue[] } {
       'A double yellow line down the middle of the road.',
       ['The most common centre line in the United States, and widespread across the Americas.'],
       ['us', 'ca', 'mx', 'br', 'co', 'pe', 'cl', 'ar'],
-      ['Americas'],
+      ['North America', 'South America'],
       { kind: 'road', centre: 'yellow-double', edge: 'white' },
       3,
       'medium',

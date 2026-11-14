@@ -9,7 +9,9 @@ const REGION_GROUPS: { key: string; label: string; regions: WorldRegion[] }[] = 
   { key: 'europe', label: 'Europe', regions: ['Europe'] },
   { key: 'asia-pacific', label: 'Asia-Pacific', regions: ['Asia', 'Oceania'] },
   { key: 'africa', label: 'Africa', regions: ['Africa'] },
-  { key: 'americas', label: 'Americas', regions: ['Americas'] },
+  // North America alone has too few covered countries to build 4-option questions, so the two
+  // continents share text-clue lessons (keeps the original `americas` lesson ids too).
+  { key: 'americas', label: 'Americas', regions: ['North America', 'South America'] },
 ];
 
 function groupKey(region: WorldRegion): string {

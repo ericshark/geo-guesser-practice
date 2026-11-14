@@ -344,7 +344,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'gl',
     name: 'Greenland',
-    region: 'Americas',
+    region: 'North America',
     subregion: 'Northern America',
     coverageTier: 'limited',
     coverageNote: 'Coastal town road and boat/ATV trekker coverage in Nuuk, Ilulissat, Sisimiut, and Qaqortoq.',
@@ -1492,7 +1492,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'us',
     name: 'United States',
-    region: 'Americas',
+    region: 'North America',
     subregion: 'Northern America',
     coverageTier: 'official',
     coverageNote: 'Broad nationwide coverage across all 50 states; speed limits in MPH and double yellow center lines.',
@@ -1506,7 +1506,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'ca',
     name: 'Canada',
-    region: 'Americas',
+    region: 'North America',
     subregion: 'Northern America',
     coverageTier: 'limited',
     coverageNote: 'Dense coverage across southern provinces and major northern highways; French/bilingual signs in Quebec and New Brunswick.',
@@ -1520,8 +1520,8 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'mx',
     name: 'Mexico',
-    region: 'Americas',
-    subregion: 'Central America',
+    region: 'North America',
+    subregion: 'Northern America',
     coverageTier: 'official',
     coverageNote: 'Extensive coverage across all 32 states; octagonal concrete utility poles and ALTO stop signs.',
     drivingSide: 'right',
@@ -1534,7 +1534,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'gt',
     name: 'Guatemala',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Central America',
     coverageTier: 'official',
     coverageNote: '2016 Gen 3 coverage with silver roof rack across highlands and Pacific coast; Spanish signage.',
@@ -1548,7 +1548,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'pa',
     name: 'Panama',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Central America',
     coverageTier: 'official',
     coverageNote: '2023 Gen 4 coverage with visible white pickup hood along the Pan-American highway and Panama City.',
@@ -1562,7 +1562,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'pr',
     name: 'Puerto Rico',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Caribbean',
     coverageTier: 'official',
     coverageNote: 'U.S. Caribbean territory with right-hand driving, Spanish signs (PARE), distances in km, and speed limits in MPH.',
@@ -1578,7 +1578,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'vi',
     name: 'U.S. Virgin Islands',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Caribbean',
     coverageTier: 'official',
     coverageNote: 'St. Thomas, St. John, and St. Croix coverage; unique U.S. territory that drives on the LEFT with American vehicles.',
@@ -1594,7 +1594,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'bm',
     name: 'Bermuda',
-    region: 'Americas',
+    region: 'North America',
     subregion: 'Northern America',
     coverageTier: 'official',
     coverageNote: 'Atlantic island territory with left-hand driving, pastel houses with white stepped limestone roofs, and English signage.',
@@ -1610,7 +1610,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'cw',
     name: 'Curaçao',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Caribbean',
     coverageTier: 'official',
     coverageNote: 'Dutch Caribbean island with right-hand driving, black roof rack, cactus fences, and Dutch/Papiamento signage.',
@@ -1626,7 +1626,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'co',
     name: 'Colombia',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'limited',
     coverageNote: 'Coverage across Andean valleys, Caribbean coast, and major highways (Amazonian southeast uncovered); yellow plates on all vehicles.',
@@ -1640,7 +1640,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'ec',
     name: 'Ecuador',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'limited',
     coverageNote: 'Coverage across the Sierra, Pacific coast, and Galápagos islands; orange commercial plates.',
@@ -1654,7 +1654,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'pe',
     name: 'Peru',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'official',
     coverageNote: 'Extensive coastal desert and Andean highway coverage; black-and-white striped signposts and S/ currency.',
@@ -1668,7 +1668,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'bo',
     name: 'Bolivia',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'limited',
     coverageNote: 'Trap / partial coverage country: 2015 Gen 3 coverage along the La Paz–Cochabamba–Santa Cruz corridor, Potosí, Sucre, and Uyuni; Amazonian lowlands and neighboring Paraguay/Venezuela have no coverage.',
@@ -1683,7 +1683,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'cl',
     name: 'Chile',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'official',
     coverageNote: 'Full north-to-south coverage from Atacama to Tierra del Fuego; all-white Google car and yellow center lines.',
@@ -1697,7 +1697,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'ar',
     name: 'Argentina',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'official',
     coverageNote: 'Broad nationwide coverage; black dot in white license plates and RN/RP route shields.',
@@ -1711,7 +1711,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'uy',
     name: 'Uruguay',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'official',
     coverageNote: 'Complete flat pampas road coverage; triple yellow-white-yellow center road lines and wooden signposts.',
@@ -1725,7 +1725,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'br',
     name: 'Brazil',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'official',
     coverageNote: 'Extensive coverage across all 26 states; Portuguese language, black-backed road signs, and (XX) area codes.',
@@ -1739,7 +1739,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 've',
     name: 'Venezuela',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'none',
     coverageNote: 'Trap country: Zero official Google Street View coverage.',
@@ -1754,7 +1754,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'py',
     name: 'Paraguay',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'none',
     coverageNote: 'Trap country: No official Google Street View road coverage (unlike neighboring Argentina, Brazil, and Uruguay).',
@@ -1769,7 +1769,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'cu',
     name: 'Cuba',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Caribbean',
     coverageTier: 'none',
     coverageNote: 'Trap country: Zero official Google Street View coverage.',
@@ -1799,7 +1799,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'cr',
     name: 'Costa Rica',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Central America',
     coverageTier: 'limited',
     coverageNote: 'Limited urban and national park trekker/road coverage around San José and tourist corridors.',
@@ -1813,7 +1813,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'do',
     name: 'Dominican Republic',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Caribbean',
     coverageTier: 'limited',
     coverageNote: '2019 Gen 4 coverage restricted to Santo Domingo and Santiago de los Caballeros.',
@@ -2095,7 +2095,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'gy',
     name: 'Guyana',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'none',
     coverageNote: 'Trap country: No official Google Street View road coverage.',
@@ -2111,7 +2111,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'sr',
     name: 'Suriname',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'South America',
     coverageTier: 'none',
     coverageNote: 'Trap country: No official Google Street View road coverage despite Dutch signage and left-hand traffic.',
@@ -2127,7 +2127,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'hn',
     name: 'Honduras',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Central America',
     coverageTier: 'none',
     coverageNote: 'Trap country: No official Google Street View road coverage.',
@@ -2142,7 +2142,7 @@ export const PLAYABLE_COUNTRIES: PlayableCountry[] = [
   {
     id: 'ni',
     name: 'Nicaragua',
-    region: 'Americas',
+    region: 'South America',
     subregion: 'Central America',
     coverageTier: 'none',
     coverageNote: 'Trap country: No official Google Street View road coverage.',

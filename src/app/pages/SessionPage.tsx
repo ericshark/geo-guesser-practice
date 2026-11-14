@@ -12,7 +12,7 @@ import type { ProgressData } from '../../storage/schema.ts';
 import { useApp } from '../AppContext.tsx';
 import { SessionPlayer } from '../session/SessionPlayer.tsx';
 
-const REGIONS = new Set(['Europe', 'Asia', 'Africa', 'Americas', 'Oceania']);
+const REGIONS = new Set(['Europe', 'Asia', 'Africa', 'North America', 'South America', 'Oceania']);
 
 export type SessionKind = 'lesson' | 'review' | 'mixed' | 'confusion' | 'country';
 

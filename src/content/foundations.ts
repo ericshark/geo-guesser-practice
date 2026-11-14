@@ -16,7 +16,7 @@ const CORE_LEFT = new Set([
  */
 const NO_COVERAGE_IDS = ['cn', 'ir', 'kp', 'sa', 'eg', 'dz', 'cu', 've', 'by', 'mm', 'et'];
 
-const REGION_ORDER: WorldRegion[] = ['Africa', 'Asia', 'Europe', 'Oceania', 'Americas'];
+const REGION_ORDER: WorldRegion[] = ['Africa', 'Asia', 'Europe', 'Oceania', 'North America', 'South America'];
 
 function foilPool(
   target: PlayableCountry,
@@ -106,12 +106,11 @@ export function buildFoundations(): { topic: Topic; clues: Clue[] } {
       .map(drivingClue)
       .sort((a, b) => b.value - a.value || a.title.localeCompare(b.title));
     if (inRegion.length === 0) continue;
-    const label =
-      region === 'Americas' ? 'the Americas' : region === 'Oceania' ? 'Oceania' : region;
+    const label = region;
     lessons.push(
       ...chunkLessons({
         topicId: TOPIC_ID,
-        baseId: `drive-left-${region.toLowerCase()}`,
+        baseId: `drive-left-${region.toLowerCase().replace(' ', '-')}`,
         title: `Driving on the left · ${label}`,
         summary: `Which countries in ${label} keep left, and the neighbours that do not.`,
         clues: inRegion,

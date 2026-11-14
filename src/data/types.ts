@@ -2,7 +2,7 @@ export type CoverageTier = 'official' | 'limited' | 'none';
 
 export type DrivingSide = 'left' | 'right';
 
-export type WorldRegion = 'Europe' | 'Asia' | 'Oceania' | 'Africa' | 'Americas';
+export type WorldRegion = 'Europe' | 'Asia' | 'Oceania' | 'Africa' | 'North America' | 'South America';
 
 export type LanguageGroupId =
   | 'east-asian'

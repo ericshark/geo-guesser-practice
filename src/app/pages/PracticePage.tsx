@@ -7,7 +7,7 @@ import { dueClues, SESSION_LENGTH, type PracticeRegion } from '../../engine/sess
 import { useApp } from '../AppContext.tsx';
 import { useDocumentTitle } from '../useDocumentTitle.ts';
 
-const REGIONS: WorldRegion[] = ['Europe', 'Asia', 'Africa', 'Americas', 'Oceania'];
+const REGIONS: WorldRegion[] = ['Europe', 'Asia', 'Africa', 'North America', 'South America', 'Oceania'];
 
 export function PracticePage() {
   useDocumentTitle('Practice');
@@ -44,7 +44,7 @@ export function PracticePage() {
                   onClick={() => setRegion(r)}
                   style={n === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
                 >
-                  {r === 'Americas' ? 'The Americas' : r} · {n}
+                  {r} · {n}
                 </button>
               );
             })}
@@ -60,7 +60,7 @@ export function PracticePage() {
             </p>
             <Link
               className="btn btn-primary btn-lg"
-              to={`/session/mixed/${region}`}
+              to={`/session/mixed/${encodeURIComponent(region)}`}
               aria-disabled={inScope.length === 0}
             >
               Start practice <ArrowRight size={18} aria-hidden />
