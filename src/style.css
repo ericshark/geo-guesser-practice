@@ -754,8 +754,8 @@ button.chip:hover {
 
 /* map-click questions */
 .clickmap-svg .cm-country {
-  fill: var(--accent-soft);
-  stroke: var(--line-strong);
+  fill: color-mix(in srgb, var(--accent) 24%, var(--surface));
+  stroke: var(--accent);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
   cursor: pointer;
@@ -763,8 +763,7 @@ button.chip:hover {
 }
 .clickmap-svg .cm-country:hover,
 .clickmap-svg .cm-country:focus-visible {
-  fill: var(--accent);
-  fill-opacity: 0.55;
+  fill: color-mix(in srgb, var(--accent) 50%, var(--surface));
 }
 .clickmap-svg .cm-country[data-state='picked'] {
   fill: var(--accent);

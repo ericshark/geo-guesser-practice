@@ -81,7 +81,7 @@ export function buildTrafficLights(): { topic: Topic; clues: Clue[] } {
       'Quebec and the Maritimes',
       'Horizontal, with shaped lamps',
       'A horizontal head whose lamps are different shapes: red square, amber diamond, green circle.',
-      ['The shaped lamps were designed so colour-blind drivers can tell them apart.'],
+      ['The red lamp is usually a square, and often appears in pairs at either end of the head.'],
       ['ca'],
       { kind: 'traffic-light', orientation: 'horizontal', housing: 'black', shapedLamps: true, mount: 'pole' },
       'Horizontal traffic light with a square red, diamond amber and round green lamp',
