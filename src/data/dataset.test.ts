@@ -155,7 +155,11 @@ describe('Dataset Integrity Seam', () => {
       ).toBeGreaterThanOrEqual(3);
 
       // Every candidateCountryId must resolve to a PlayableCountry with coverageTier !== 'none'
-      expect(lang.candidateCountryIds.length).toBeGreaterThan(0);
+      // Languages used only where there is no official coverage list those countries separately.
+      expect(lang.candidateCountryIds.length + (lang.uncoveredCountryIds?.length ?? 0)).toBeGreaterThan(0);
+      for (const countryId of lang.uncoveredCountryIds ?? []) {
+        expect(PLAYABLE_COUNTRY_MAP[countryId]?.coverageTier, `${lang.id} uncovered country ${countryId}`).toBe('none');
+      }
       for (const countryId of lang.candidateCountryIds) {
         const country = PLAYABLE_COUNTRY_MAP[countryId];
         expect(country, `Language ${lang.id} references unknown country ${countryId}`).toBeDefined();

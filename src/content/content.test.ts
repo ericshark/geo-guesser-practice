@@ -76,7 +76,15 @@ describe('curriculum content', () => {
 
   it('gives language clues varied material and at least one verified highlight', () => {
     const languages = CLUES.filter((c) => c.topicId === 'languages');
-    expect(languages.length).toBe(55);
+    expect(languages.length).toBe(69);
+    // Languages that used to be missing or thin (5 samples) must now carry about a dozen varied samples.
+    const DEEP = ['en', 'kl', 'ms', 'my', 'dz', 'ne', 'ur', 'kk', 'sq', 'fa', 'az', 'hy', 'uz', 'am', 'lo', 'km', 'si', 'gu', 'zu', 'yo', 'mn', 'ky'];
+    for (const id of DEEP) {
+      const clue = languages.find((c) => c.id === `lang:${id}`);
+      expect(clue, id).toBeDefined();
+      expect(clue!.stimuli.length, id).toBeGreaterThanOrEqual(12);
+      expect(new Set(clue!.stimuli.map((s) => s.text)).size, id).toBe(clue!.stimuli.length);
+    }
     for (const clue of languages) {
       expect(clue.stimuli.length, clue.id).toBeGreaterThanOrEqual(5);
       expect(clue.stimuli.some((s) => (s.tellIds?.length ?? 0) > 0), clue.id).toBe(true);

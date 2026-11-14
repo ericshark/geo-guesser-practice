@@ -6,12 +6,13 @@ import { chunkLessons } from './helpers.ts';
 const TOPIC_ID = 'languages';
 
 /** Languages that show up constantly on GeoGuessr maps (value 3) vs. rare ones (value 1). */
-const COMMON = new Set(['es', 'pt', 'fr', 'de', 'ru', 'ja', 'ko', 'th', 'id', 'hi', 'ar', 'tr', 'pl', 'it', 'zh-hans']);
-const RARE = new Set(['is', 'mt', 'si', 'yo', 'zu', 'mn', 'ky', 'lo', 'gu', 'te', 'ka']);
+const COMMON = new Set(['es', 'pt', 'fr', 'de', 'ru', 'ja', 'ko', 'th', 'id', 'hi', 'ar', 'tr', 'pl', 'it', 'zh-hans', 'en']);
+const RARE = new Set(['is', 'mt', 'si', 'yo', 'zu', 'mn', 'ky', 'lo', 'gu', 'te', 'ka', 'kl', 'dz', 'am', 'hy', 'uz', 'az', 'my']);
 
 function languageClue(language: LanguageSpec, siblings: LanguageSpec[]): Clue {
   const regions = new Set<WorldRegion>();
-  for (const id of language.candidateCountryIds) {
+  const countryIds = [...language.candidateCountryIds, ...(language.uncoveredCountryIds ?? [])];
+  for (const id of countryIds) {
     const country = PLAYABLE_COUNTRY_MAP[id];
     if (country) regions.add(country.region);
   }
@@ -30,7 +31,7 @@ function languageClue(language: LanguageSpec, siblings: LanguageSpec[]): Clue {
     spot: language.gestaltNote,
     detail,
     regions: [...regions],
-    countryIds: language.candidateCountryIds.filter((id) => PLAYABLE_COUNTRY_MAP[id]),
+    countryIds: countryIds.filter((id) => PLAYABLE_COUNTRY_MAP[id]),
     choiceGroup: language.groupId,
     confusables: siblings
       .filter((s) => s.id !== language.id)

@@ -71,7 +71,10 @@ export interface LanguageSpec {
   tells: TellSpec[];
   gestaltNote: string;
   contrastNote: string;
+  /** Covered countries (coverage tier other than none) where this language shows up. */
   candidateCountryIds: string[];
+  /** Countries that use the language but have no official coverage (tier none); used for the map only. */
+  uncoveredCountryIds?: string[];
   uncoveredCountryNotes: string[];
   samples: LanguageSample[];
 }

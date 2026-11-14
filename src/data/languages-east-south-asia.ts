@@ -447,7 +447,7 @@ export const LANGUAGES_EAST_SOUTH_ASIA: LanguageSpec[] = [
       },
       {
         id: 'km-sent-2',
-        text: 'ផ្សារធំថ្មីមានលក់ម្ហូបអាហារและផ្លែឈើស្រស់ៗ។',
+        text: 'ផ្សារធំថ្មីមានលក់ម្ហូបអាហារនិងផ្លែឈើស្រស់ៗ។',
         translation: 'Central Market sells food and fresh fruit.',
         kind: 'sentence',
         tellIds: ['km-subscripts', 'km-ornate-hats'],
