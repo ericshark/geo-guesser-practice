@@ -164,7 +164,7 @@ export function buildArchitecture(): { topic: Topic; clues: Clue[] } {
     horreo: [wiki('H%C3%B3rreo', 'Hórreo')],
     'black-roofs': [plonkit('luxembourg', 'Luxembourg')],
     'dutch-brick': [plonkit('netherlands', 'Netherlands'), wiki('Dutch_architecture', 'Dutch architecture')],
-    'greek-whitewash': [wiki('Cycladic_architecture', 'Cycladic architecture')],
+    'greek-whitewash': [wiki('Cyclades')],
     'turf-roofs': [wiki('Turf_house', 'Turf house'), plonkit('faroe-islands', 'Faroe Islands')],
     'bali-gates': [plonkit('indonesia', 'Indonesia'), wiki('Candi_bentar')],
     'alpine-chalet': [wiki('Chalet')],

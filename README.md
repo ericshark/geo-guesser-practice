@@ -1,6 +1,6 @@
 # GeoGuessr Academy
 
-A local-first learning platform for getting better at GeoGuessr. A guided curriculum teaches the clues that identify countries (languages, driving side, Street View coverage, web addresses and prices, with road lines, signs, bollards, plates and more on the roadmap), then practice and spaced review make them stick.
+A local-first learning platform for getting better at GeoGuessr. A guided curriculum teaches the clues that identify countries (languages, driving side, Street View coverage, web addresses and prices, road lines, signs, street-name plates, kilometre posts, traffic lights, bollards, plates, poles, vehicles, landscape, architecture and regions inside big countries), then practice and spaced review make them stick.
 
 ## How it works
 

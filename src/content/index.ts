@@ -20,7 +20,11 @@ export * from './types.ts';
 const built = [buildFoundations(), buildLanguages(), buildRoadLines(), buildRoadSigns(), buildStreetNames(), buildKmPosts(), buildTrafficLights(), buildBollards(), buildPlates(), buildPoles(), buildVehicles(), buildLandscape(), buildArchitecture(), buildRegions(), buildTextClues()];
 
 /** Topics that are playable today, in curriculum order. */
-export const TOPICS: Topic[] = built.map((b) => b.topic).sort((a, b) => a.order - b.order);
+export const TOPICS: Topic[] = built
+  .map((b) => b.topic)
+  .sort((a, b) => a.order - b.order)
+  // Each topic file states where it slots in; the number shown to learners is the final position.
+  .map((topic, i) => ({ ...topic, order: i + 1 }));
 
 export const CLUES: Clue[] = built.flatMap((b) => b.clues);
 
