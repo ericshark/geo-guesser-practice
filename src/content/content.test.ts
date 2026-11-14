@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CLUES, CLUE_MAP, LESSONS, LESSON_MAP, TOPICS } from './index.ts';
 import { PLAYABLE_COUNTRY_MAP } from '../data/index.ts';
-import { buildQuestion } from '../engine/questionGen.ts';
+import { buildQuestion, type ChoiceQuestion } from '../engine/questionGen.ts';
 import { seededRng } from '../engine/random.ts';
 
 describe('curriculum content', () => {
@@ -52,7 +52,9 @@ describe('curriculum content', () => {
     const rng = seededRng(7);
     for (const clue of CLUES) {
       for (let i = 0; i < 3; i += 1) {
-        const q = buildQuestion(clue, rng);
+        // A clue's first question is always a plain choice.
+        const q = buildQuestion(clue, rng) as ChoiceQuestion;
+        expect(q.kind).toBe('choice');
         const label = (id: string) => q.options.find((o) => o.id === id)!.label;
         expect(q.options.length, clue.id).toBe(4);
         expect(new Set(q.options.map((o) => o.id)).size, clue.id).toBe(4);
@@ -117,7 +119,7 @@ describe('curriculum content', () => {
     const rng = seededRng(11);
     for (const clue of CLUES.filter((c) => c.id.startsWith('drive-left:'))) {
       for (let i = 0; i < 5; i += 1) {
-        const q = buildQuestion(clue, rng);
+        const q = buildQuestion(clue, rng) as ChoiceQuestion;
         for (const option of q.options) {
           if (option.id === clue.id) continue;
           expect(option.isFoil, `${clue.id} offered non-foil ${option.id}`).toBe(true);

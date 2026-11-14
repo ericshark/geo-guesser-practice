@@ -3,6 +3,16 @@ import { CLUES, LESSONS } from '../content/index.ts';
 import { createInitialProgressData, type ProgressData } from '../storage/schema.ts';
 import { nextAction, nextLesson, topConfusions } from './curriculum.ts';
 import { masteryOf } from './mastery.ts';
+import { PLAYABLE_COUNTRY_MAP } from '../data/index.ts';
+import {
+  buildQuestion,
+  gradeMapSelection,
+  MAP_MAX_COUNTRIES,
+  MAP_MIN_COUNTRIES,
+  pickQuestionKind,
+  serializeSelection,
+  supportedKinds,
+} from './questionGen.ts';
 import { seededRng } from './random.ts';
 import { gradeFor, isDue, reviewClue } from './scheduler.ts';
 import { buildSession, dueClues, interleave, requeueMissed, SESSION_LENGTH } from './sessionBuilder.ts';
@@ -152,5 +162,95 @@ describe('curriculum selectors', () => {
     const p = createInitialProgressData(T0);
     p.confusions[a.id] = { [b.id]: 3, [c.id]: 1, 'foil-right:xx': 9 };
     expect(topConfusions(p)).toEqual([{ expectedId: a.id, chosenId: b.id, count: 3 }]);
+  });
+});
+
+describe('question formats', () => {
+  const multi = CLUES.filter((c) => supportedKinds(c).includes('map'));
+  const paired = CLUES.filter((c) => supportedKinds(c).includes('pair'));
+
+  it('offers the map and side-by-side formats only where the clue supports them', () => {
+    expect(multi.length).toBeGreaterThan(0);
+    expect(paired.length).toBeGreaterThan(0);
+    for (const clue of multi) {
+      const countries = new Set(clue.countryIds.filter((id) => PLAYABLE_COUNTRY_MAP[id]));
+      expect(countries.size, clue.id).toBeGreaterThanOrEqual(MAP_MIN_COUNTRIES);
+      expect(countries.size, clue.id).toBeLessThanOrEqual(MAP_MAX_COUNTRIES);
+    }
+    for (const clue of CLUES.filter((c) => c.countryIds.length < 2)) {
+      expect(supportedKinds(clue), clue.id).not.toContain('map');
+    }
+    for (const clue of paired) expect(clue.confusables.length, clue.id).toBeGreaterThan(0);
+  });
+
+  it('always asks a clue as a plain choice the first time it is seen', () => {
+    const rng = seededRng(3);
+    for (const clue of [...multi, ...paired]) {
+      for (let i = 0; i < 10; i += 1) expect(pickQuestionKind(clue, rng, 0)).toBe('choice');
+    }
+  });
+
+  it('mixes formats in once a clue has been seen, and never for clues that support only choice', () => {
+    const rng = seededRng(5);
+    const clue = multi[0];
+    const kinds = new Set(Array.from({ length: 200 }, () => pickQuestionKind(clue, rng, 2)));
+    expect(kinds.has('choice')).toBe(true);
+    expect(kinds.size).toBeGreaterThan(1);
+    const plain = CLUES.find((c) => supportedKinds(c).length === 1)!;
+    for (let i = 0; i < 50; i += 1) expect(pickQuestionKind(plain, rng, 5)).toBe('choice');
+  });
+
+  it('builds a valid map question whose targets are all clickable', () => {
+    const rng = seededRng(9);
+    for (const clue of multi) {
+      const q = buildQuestion(clue, rng, { forceKind: 'map', timesSeen: 3 });
+      expect(q.kind, clue.id).toBe('map');
+      if (q.kind !== 'map') continue;
+      for (const id of q.targetIds) expect(q.candidateIds, clue.id).toContain(id);
+      expect(q.candidateIds.length, clue.id).toBeGreaterThan(q.targetIds.length - 1);
+      expect(q.correctId).toBe(serializeSelection(q.targetIds));
+    }
+  });
+
+  it('grades a map answer as correct only for the exact set of countries', () => {
+    const clue = multi[0];
+    const q = buildQuestion(clue, seededRng(1), { forceKind: 'map', timesSeen: 3 });
+    if (q.kind !== 'map') throw new Error('expected a map question');
+    expect(gradeMapSelection(q, q.targetIds).correct).toBe(true);
+    expect(gradeMapSelection(q, [...q.targetIds].reverse()).correct).toBe(true);
+    const missing = gradeMapSelection(q, q.targetIds.slice(1));
+    expect(missing.correct).toBe(false);
+    expect(missing.missed).toEqual([q.targetIds[0]]);
+    const outsider = q.candidateIds.find((id) => !q.targetIds.includes(id));
+    if (outsider) {
+      const extra = gradeMapSelection(q, [...q.targetIds, outsider]);
+      expect(extra.correct).toBe(false);
+      expect(extra.extra).toEqual([outsider]);
+    }
+    expect(gradeMapSelection(q, []).correct).toBe(false);
+  });
+
+  it('pairs a clue with one of its declared look-alikes, both with something to show', () => {
+    const rng = seededRng(13);
+    for (const clue of paired) {
+      const q = buildQuestion(clue, rng, { forceKind: 'pair', timesSeen: 3 });
+      expect(q.kind, clue.id).toBe('pair');
+      if (q.kind !== 'pair') continue;
+      expect(q.options, clue.id).toHaveLength(2);
+      expect(q.options.map((o) => o.id)).toContain(clue.id);
+      const other = q.options.find((o) => o.id !== clue.id)!;
+      expect(clue.confusables.map((c) => c.clueId), clue.id).toContain(other.id);
+      for (const o of q.options) {
+        const s = o.stimulus;
+        expect(Boolean(s.visual) || s.kind !== 'plain' || Boolean(s.mono), o.id).toBe(true);
+      }
+      expect(q.correctId).toBe(clue.id);
+    }
+  });
+
+  it('falls back to a plain choice when a requested format is not supported', () => {
+    const single = CLUES.find((c) => supportedKinds(c).length === 1)!;
+    expect(buildQuestion(single, seededRng(2), { forceKind: 'map', timesSeen: 3 }).kind).toBe('choice');
+    expect(buildQuestion(single, seededRng(2), { forceKind: 'pair', timesSeen: 3 }).kind).toBe('choice');
   });
 });

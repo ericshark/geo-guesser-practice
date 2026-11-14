@@ -752,6 +752,103 @@ button.chip:hover {
   stroke-width: 1.5;
 }
 
+/* map-click questions */
+.clickmap-svg .cm-country {
+  fill: var(--accent-soft);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+  outline: none;
+}
+.clickmap-svg .cm-country:hover,
+.clickmap-svg .cm-country:focus-visible {
+  fill: var(--accent);
+  fill-opacity: 0.55;
+}
+.clickmap-svg .cm-country[data-state='picked'] {
+  fill: var(--accent);
+  stroke: var(--accent-hover);
+}
+.clickmap-svg .cm-country[data-state='right'] {
+  fill: var(--good);
+  stroke: var(--good);
+}
+.clickmap-svg .cm-country[data-state='wrong'] {
+  fill: var(--bad);
+  stroke: var(--bad);
+}
+.clickmap-svg .cm-country[data-state='missed'] {
+  fill: var(--warn-soft);
+  stroke: var(--good);
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
+}
+.clickmap-svg .cm-dot {
+  fill: var(--ink);
+  fill-opacity: 0.35;
+  stroke: var(--surface);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+.clickmap-svg .cm-dot[data-state='picked'] { fill: var(--accent); fill-opacity: 1; }
+.clickmap-svg .cm-dot[data-state='right'] { fill: var(--good); fill-opacity: 1; }
+.clickmap-svg .cm-dot[data-state='wrong'] { fill: var(--bad); fill-opacity: 1; }
+.clickmap-svg .cm-dot[data-state='missed'] { fill: var(--good); fill-opacity: 1; }
+.cm-chip {
+  cursor: pointer;
+  font: inherit;
+}
+.cm-chip[data-state='picked'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.cm-chip[data-state='right'] {
+  background: var(--good-soft);
+  border-color: var(--good);
+}
+.cm-chip[data-state='wrong'] {
+  background: var(--bad-soft);
+  border-color: var(--bad);
+}
+.cm-chip[data-state='missed'] {
+  background: var(--warn-soft);
+  border-color: var(--good);
+}
+
+/* side-by-side questions */
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 520px) {
+  .pair {
+    grid-template-columns: 1fr;
+  }
+}
+.pair-option {
+  align-items: flex-start;
+  padding: 12px;
+}
+.pair-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.pair-option .stimulus {
+  padding: 18px 12px;
+  font-size: 1.25rem;
+}
+.pair-name {
+  font-weight: 600;
+  text-align: center;
+}
+
 /* forms */
 .input,
 .select,

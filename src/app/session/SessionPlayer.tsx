@@ -6,12 +6,19 @@ import { VisualSvg } from '../RoadSvg.tsx';
 import { PLAYABLE_COUNTRY_MAP } from '../../data/index.ts';
 import { nextAction } from '../../engine/curriculum.ts';
 import { explain, highlightStimulus } from '../../engine/explain.ts';
-import { buildQuestion, type Question } from '../../engine/questionGen.ts';
+import {
+  buildQuestion,
+  gradeMapSelection,
+  type MapQuestion,
+  type PairQuestion,
+  type Question,
+} from '../../engine/questionGen.ts';
 import { requeueMissed, type SessionPlan } from '../../engine/sessionBuilder.ts';
 import type { AnswerResult } from '../../storage/schema.ts';
 import { useApp } from '../AppContext.tsx';
 import { useDocumentTitle } from '../useDocumentTitle.ts';
 import { CountryChips, formatDue, MiniMap } from '../ui.tsx';
+import { ClickMap } from './ClickMap.tsx';
 
 interface Outcome {
   clueId: string;
@@ -21,8 +28,11 @@ interface Outcome {
 type Phase = 'study' | 'ask' | 'done';
 
 export function SessionPlayer({ plan, exitTo }: { plan: SessionPlan; exitTo: string }) {
-  const { store } = useApp();
+  const { store, progress } = useApp();
   useDocumentTitle(plan.title);
+  // begin() is memoised, so it reads the latest progress through a ref.
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
   const [phase, setPhase] = useState<Phase>(
     plan.queue.length === 0 ? 'done' : plan.study.length > 0 ? 'study' : 'ask'
   );
@@ -41,7 +51,11 @@ export function SessionPlayer({ plan, exitTo }: { plan: SessionPlan; exitTo: str
 
   const begin = useCallback((nextIndex: number, list: string[]) => {
     const clue = CLUE_MAP[list[nextIndex]];
-    const q = buildQuestion(clue, Math.random, { avoidStimulusIndex: lastStimulus.current.get(clue.id) });
+    // The format (choice, map or side-by-side) is chosen by the engine from what the clue supports.
+    const q = buildQuestion(clue, Math.random, {
+      avoidStimulusIndex: lastStimulus.current.get(clue.id),
+      timesSeen: progressRef.current.clues[clue.id]?.seen ?? 0,
+    });
     lastStimulus.current.set(clue.id, q.stimulusIndex);
     setIndex(nextIndex);
     setQuestion(q);
@@ -75,7 +89,8 @@ export function SessionPlayer({ plan, exitTo }: { plan: SessionPlan; exitTo: str
       setOutcomes((o) => [...o, { clueId: question.clueId, result }]);
       void store.recordAnswer({
         clueId: question.clueId,
-        chosenId: optionId,
+        // A map selection is not a clue, so it never counts as a mix-up between two clues.
+        chosenId: question.kind === 'map' ? undefined : optionId,
         result,
         responseTimeMs: performance.now() - startedAt.current,
       });
@@ -116,7 +131,7 @@ export function SessionPlayer({ plan, exitTo }: { plan: SessionPlan; exitTo: str
       if (phase !== 'ask' || !question) return;
       if (!selected) {
         const n = Number(e.key);
-        if (n >= 1 && n <= question.options.length) answer(question.options[n - 1].id);
+        if (question.kind !== 'map' && n >= 1 && n <= question.options.length) answer(question.options[n - 1].id);
         else if (e.key === 'h' || e.key === '?') setHintShown(true);
       } else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
@@ -323,7 +338,7 @@ function QuestionView({
       <p className="stem">{question.stem}</p>
 
       {/* Questions with no stimulus ("which of these drives left?") ask in words only. */}
-      {(s.kind !== 'plain' || s.mono || s.visual) && (
+      {question.kind !== 'pair' && (s.kind !== 'plain' || s.mono || s.visual) && (
         <Stimulus
           visual={s.visual}
           clue={clue}
@@ -336,6 +351,11 @@ function QuestionView({
         />
       )}
 
+      {question.kind === 'pair' && <PairView question={question} selected={selected} onAnswer={onAnswer} />}
+
+      {question.kind === 'map' && <ClickMap key={question.id} question={question} selected={selected} onAnswer={onAnswer} />}
+
+      {question.kind === 'choice' && (
       <div className="options" role="group" aria-label="Answers">
         {question.options.map((o, i) => {
           const state = !answered
@@ -363,6 +383,7 @@ function QuestionView({
           );
         })}
       </div>
+      )}
 
       {!answered && (
         <div style={{ marginTop: 16 }}>
@@ -380,7 +401,9 @@ function QuestionView({
         </div>
       )}
 
-      {answered && explanation && (
+      {answered && question.kind === 'map' && <MapFeedback question={question} selected={selected} />}
+
+      {answered && explanation && question.kind !== 'map' && (
         <div className={`feedback ${correct ? 'good' : 'bad'}`} role="status" aria-live="polite">
           <div className="feedback-title">{correct ? 'Correct' : 'Not quite'}</div>
           {correct ? (
@@ -429,6 +452,73 @@ function QuestionView({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Two samples side by side: the clue and its closest look-alike. */
+function PairView({
+  question,
+  selected,
+  onAnswer,
+}: {
+  question: PairQuestion;
+  selected: string | null;
+  onAnswer: (id: string) => void;
+}) {
+  const answered = selected !== null;
+  return (
+    <div className="pair" role="group" aria-label="Pick one">
+      {question.options.map((o, i) => {
+        const state = !answered ? 'idle' : o.id === question.correctId ? 'correct' : o.id === selected ? 'wrong' : 'dim';
+        const clue = CLUE_MAP[o.id];
+        return (
+          <button
+            key={o.id}
+            type="button"
+            className="option pair-option"
+            data-state={state}
+            disabled={answered}
+            onClick={() => onAnswer(o.id)}
+            aria-label={`Option ${i + 1}`}
+          >
+            <span className="key" aria-hidden>{i + 1}</span>
+            <span className="pair-body">
+              <Stimulus
+                visual={o.stimulus.visual}
+                clue={clue}
+                text={o.stimulus.text}
+                translation={answered ? o.stimulus.translation : undefined}
+                kind={o.stimulus.kind}
+                mono={o.stimulus.mono}
+                tellIds={o.stimulus.tellIds}
+                highlight={answered}
+              />
+              {answered && <span className="pair-name">{o.label}</span>}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** What a map answer got right and wrong. */
+function MapFeedback({ question, selected }: { question: MapQuestion; selected: string }) {
+  const grade = gradeMapSelection(question, selected.split(',').filter(Boolean));
+  const clue = CLUE_MAP[question.clueId];
+  const names = (ids: string[]) => ids.map((id) => PLAYABLE_COUNTRY_MAP[id]?.name ?? id).join(', ');
+  return (
+    <div className={`feedback ${grade.correct ? 'good' : 'bad'}`} role="status" aria-live="polite">
+      <div className="feedback-title">{grade.correct ? 'Correct' : 'Not quite'}</div>
+      <p className="small" style={{ marginTop: 4 }}>{clue.spot}</p>
+      {!grade.correct && (
+        <ul className="bullets">
+          {grade.missed.length > 0 && <li><strong>Missed:</strong> {names(grade.missed)}</li>}
+          {grade.extra.length > 0 && <li><strong>Not part of it:</strong> {names(grade.extra)}</li>}
+        </ul>
+      )}
+      <div style={{ marginTop: 8 }}><CountryChips ids={question.targetIds} limit={8} /></div>
     </div>
   );
 }
