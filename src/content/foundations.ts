@@ -65,6 +65,38 @@ function drivingClue(country: PlayableCountry): Clue {
   };
 }
 
+/** US Pacific territories drive on the right, surrounded by left-driving neighbours. */
+const PACIFIC_RIGHT_IDS = ['gu', 'mp', 'as'];
+
+function drivingRightClue(country: PlayableCountry): Clue {
+  return {
+    id: `drive-right:${country.id}`,
+    topicId: TOPIC_ID,
+    lessonId: '',
+    title: country.name,
+    stem: 'Which of these Pacific places drives on the right?',
+    spot: `${country.name} drives on the right, because it is a United States territory.`,
+    detail: [
+      'Many Pacific neighbours keep left (Australia, New Zealand, Fiji, Samoa, Tonga), so right-hand traffic plus US-style signs and road markings stands out.',
+    ],
+    regions: [country.region],
+    countryIds: [country.id],
+    choiceGroup: '',
+    confusables: [],
+    foils: foilPool(
+      country,
+      // Oceania has few playable left-driving countries, so closer regions fill the rest.
+      (c) => c.drivingSide === 'left',
+      (c) => `${c.name} drives on the left.`,
+      'foil-left'
+    ),
+    stimuli: [{ text: 'Which side of the road does traffic keep to?', kind: 'plain' }],
+    tells: [],
+    value: 2,
+    confidence: 'high',
+  };
+}
+
 function coverageClue(country: PlayableCountry): Clue {
   return {
     id: `no-coverage:${country.id}`,
@@ -119,6 +151,22 @@ export function buildFoundations(): { topic: Topic; clues: Clue[] } {
     );
     clues.push(...inRegion);
   }
+
+  // US Pacific territories: right-hand traffic among left-driving neighbours.
+  const pacificRight = PACIFIC_RIGHT_IDS.map((id) => PLAYABLE_COUNTRIES.find((c) => c.id === id))
+    .filter((c): c is PlayableCountry => Boolean(c))
+    .map(drivingRightClue);
+  lessons.push(
+    ...chunkLessons({
+      topicId: TOPIC_ID,
+      baseId: 'drive-right-pacific',
+      title: 'Driving on the right · Pacific surprises',
+      summary: 'Guam, the Northern Mariana Islands and American Samoa keep right while most of Oceania keeps left.',
+      clues: pacificRight,
+      max: 5,
+    })
+  );
+  clues.push(...pacificRight);
 
   // Missing Street View.
   const noCoverage = NO_COVERAGE_IDS.map((id) => PLAYABLE_COUNTRIES.find((c) => c.id === id))
