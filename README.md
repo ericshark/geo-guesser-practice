@@ -1,27 +1,26 @@
 # GeoGuessr Academy
 
-A local-first learning platform for getting better at GeoGuessr. A guided curriculum teaches the clues that identify countries (languages, driving side, Street View coverage, web addresses and prices, road lines, signs, street-name plates, kilometre posts, traffic lights, bollards, plates, poles, vehicles, landscape, architecture and regions inside big countries), then practice and spaced review make them stick.
+A learning app for recognizing the clues that help you identify places in GeoGuessr, from road markings and signs to languages, license plates, and driving side.
+
+[Open GeoGuessr Academy](https://geo-guesser-practice.ericzwierzynski.dev)
+
+![GeoGuessr Academy curriculum and suggested next lesson](docs/screenshots/curriculum.jpg)
+
+![A driving-side clue card showing Botswana on a map](docs/screenshots/lesson.jpg)
 
 ## How it works
 
-- **Learn**: a path of topics and short lessons. Each lesson introduces a few clues (what to look for, where it applies, what it is confused with), then asks questions that mix in look-alikes and due reviews.
-- **Practice**: mixed questions from everything learned, optionally limited to a region.
-- **Reference**: everything known about a country, with a button to practise just that country.
-- Every clue is scheduled with FSRS, so weak and overdue clues return at the right time. See [docs/adr/0004](./docs/adr/0004-fsrs-per-clue-scheduling.md).
+**Learn** introduces clues and common mix-ups. **Practice** mixes questions from completed lessons, and **Reference** lets you look up or drill a country. Free Spaced Repetition Scheduler (FSRS) schedules review for individual clues. The hosted app stores progress in your browser. The local dev server also writes it to `data/progress.json`.
 
-## Documentation
+## Run locally
 
-- [GLOSSARY.md](./GLOSSARY.md): domain vocabulary
-- [docs/adr/](./docs/adr/): architectural decisions
-- [docs/research/learning-strategy.md](./docs/research/learning-strategy.md): perceptual-learning research
-
-## Scripts
+Use Node.js 24 or later and npm.
 
 ```sh
+npm ci
 npm run dev
-npm test
-npm run typecheck
-npm run build
 ```
 
-Progress is saved to `data/progress.json` by the dev server and mirrored in the browser (IndexedDB).
+Open the URL printed by Vite. Use `npm test` to run tests or `npm run build` to build the static app.
+
+[Glossary](GLOSSARY.md) · [Learning strategy](docs/research/learning-strategy.md) · [Spaced review design](docs/adr/0004-fsrs-per-clue-scheduling.md)
