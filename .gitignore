@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 data/progress.json
 data/*.tmp
+.scratch/
